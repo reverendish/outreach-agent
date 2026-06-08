@@ -14,8 +14,8 @@
   },
   "devDependencies": {
     "@netlify/plugin-nextjs": "^5",
-    "typescript": "^5",
-    "@types/node": "^20",
-    "@types/react": "^18"
+    "@types/node": "^20.19.42",
+    "@types/react": "^18.3.31",
+    "typescript": "^5.9.3"
   }
 }
