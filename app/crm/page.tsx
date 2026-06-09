@@ -44,7 +44,8 @@ export default function CRM() {
     setSearchError("");
     setResults([]);
     try {
-      const res = await fetch(`/search?q=${encodeURIComponent(query)}`);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const res = await fetch(`${apiUrl}/search?q=${encodeURIComponent(query)}`);
       const data = await res.json();
       if (data.error) { setSearchError(data.error); return; }
       setResults((data.companies || []).map((c: { name: string; number: string; address: string; sic: string; incorporated: string; type: string }) => ({
@@ -66,7 +67,8 @@ export default function CRM() {
     if (contacts.find(x => x.id === c.id)) return;
     // Fetch director
     try {
-      const res = await fetch(`/officers?number=${c.id}`);
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const res = await fetch(`${apiUrl}/officers?number=${c.id}`);
       const data = await res.json();
       c.director = data.director || null;
     } catch { /* non-critical */ }
@@ -86,7 +88,8 @@ export default function CRM() {
   const generateMessage = async (c: Contact) => {
     setGenerating(c.id);
     try {
-      const res = await fetch("/generate", {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const res = await fetch(`${apiUrl}/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
