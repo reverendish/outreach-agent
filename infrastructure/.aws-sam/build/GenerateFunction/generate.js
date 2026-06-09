@@ -14,12 +14,10 @@ export const handler = async (event) => {
   }
 
   let body;
-  try { body = JSON.parse(event.body || '{}'); } catch {
-    return {
-      statusCode: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Invalid JSON' })
-    };
+  try {
+    body = JSON.parse(event.body || '{}');
+  } catch {
+    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Invalid JSON' }) };
   }
 
   const { name, business, context } = body;
@@ -57,11 +55,11 @@ Output only the email. No commentary.`;
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ result })
     };
-  } catch (e) {
+  } catch (error) {
     return {
       statusCode: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Generation failed', details: e.message })
+      body: JSON.stringify({ error: 'Failed to generate email' })
     };
   }
 };

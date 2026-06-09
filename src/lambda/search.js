@@ -1,7 +1,7 @@
 export const handler = async (event) => {
   const corsHeaders = {
     'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || 'https://outreach.ishsitotombe.co.uk',
-    'Access-Control-Allow-Methods': 'GET, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
   };
 
@@ -9,33 +9,55 @@ export const handler = async (event) => {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
-  const q = event.queryStringParameters?.q;
-  if (!q) {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Missing query' }) };
+  // Support both GET (query params) and POST (JSON body)
+  let query;
+  if (event.requestContext?.http?.method === 'GET') {
+    const { q } = event.queryStringParameters || {};
+    query = q;
+  } else {
+    let body;
+    try { body = JSON.parse(event.body || '{}'); } catch { }
+    query = body?.query || event.queryStringParameters?.q;
+  }
+
+  if (!query) {
+    return {
+      statusCode: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'query required' })
+    };
   }
 
   const apiKey = process.env.COMPANIES_HOUSE_API_KEY;
   if (!apiKey) {
-    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: 'API key not configured' }) };
+    return {
+      statusCode: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'API key not configured' })
+    };
   }
 
-  const credentials = Buffer.from(`${apiKey}:`).toString('base64');
-  const url = `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(q)}&items_per_page=10`;
-
   try {
+    const credentials = Buffer.from(`${apiKey}:`).toString('base64');
+    const url = `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(query)}&items_per_page=10`;
+
     const res = await fetch(url, {
       headers: { Authorization: `Basic ${credentials}` }
     });
 
     if (!res.ok) {
-      return { statusCode: 502, headers: corsHeaders, body: JSON.stringify({ error: 'Companies House error' }) };
+      return {
+        statusCode: 502,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ error: 'Companies House error' })
+      };
     }
 
     const data = await res.json();
     const companies = (data.items || [])
-      .filter((c) => c.company_status === 'active')
+      .filter(c => c.company_status === 'active')
       .slice(0, 8)
-      .map((c) => {
+      .map(c => {
         const addr = c.address;
         return {
           name: c.title,
@@ -52,7 +74,11 @@ export const handler = async (event) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ companies })
     };
-  } catch (error) {
-    return { statusCode: 500, headers: corsHeaders, body: JSON.stringify({ error: 'Internal server error' }) };
+  } catch (e) {
+    return {
+      statusCode: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Internal server error' })
+    };
   }
 };
