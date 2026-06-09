@@ -1,6 +1,12 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
+Parameters:
+  CompaniesHouseApiKey:
+    Type: String
+    NoEcho: true
+    Description: Companies House API key
+
 Globals:
   Function:
     Runtime: nodejs20.x
@@ -10,6 +16,7 @@ Globals:
       Variables:
         BEDROCK_REGION: eu-west-2
         ALLOWED_ORIGIN: 'https://outreach.ishsitotombe.co.uk'
+        COMPANIES_HOUSE_API_KEY: !Ref CompaniesHouseApiKey
 
 Resources:
   SearchFunction:
@@ -17,9 +24,6 @@ Resources:
     Properties:
       CodeUri: ../src/lambda/
       Handler: search.handler
-      Environment:
-        Variables:
-          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
       Events:
         SearchGet:
           Type: HttpApi
@@ -37,9 +41,6 @@ Resources:
     Properties:
       CodeUri: ../src/lambda/
       Handler: officers.handler
-      Environment:
-        Variables:
-          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
       Events:
         OfficersGet:
           Type: HttpApi
