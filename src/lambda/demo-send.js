@@ -103,7 +103,7 @@ Output only the email. No commentary.`;
   let emailText;
   try {
     const command = new InvokeModelCommand({
-      modelId: process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20251001-v1:0',
+      modelId: process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
       contentType: 'application/json',
       accept: 'application/json',
       body: JSON.stringify({
