@@ -9,7 +9,7 @@
  *
  * Required SSM params:
  *   /outreach/resend_api_key  — Resend API key
- * Resend sender domain must have "demo@ishsitotombe.co.uk" verified.
+ * Resend sender domain must have "outreach@ishsitotombe.co.uk" verified.
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
@@ -144,7 +144,7 @@ Output only the email. No commentary.`;
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        from: 'Ish Sitotombe <demo@ishsitotombe.co.uk>',
+        from: 'Ish Sitotombe <outreach@ishsitotombe.co.uk>',
         to: [recipientEmail],
         subject,
         text: emailBody,
