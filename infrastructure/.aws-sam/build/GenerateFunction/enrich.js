@@ -13,13 +13,27 @@ import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedroc
 // Lambda-to-Lambda invocation latency and cross-function auth complexity.
 // In production, consider splitting if cold starts become an issue.
 
-const CORS = {
-  'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || 'https://outreach.ishsitotombe.co.uk',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+// Multi-origin allowlist — reflects the request origin so browsers accept the response.
+// Falling back to the outreach app origin keeps legacy single-origin clients working.
+const ALLOWED_ORIGINS = new Set([
+  'https://outreach.ishsitotombe.co.uk',
+  'https://ishsitotombe.co.uk',
+  'https://www.ishsitotombe.co.uk',
+]);
 
-const MODEL_ID = 'us.anthropic.claude-sonnet-4-5';
+function corsHeaders(requestOrigin) {
+  const origin = ALLOWED_ORIGINS.has(requestOrigin)
+    ? requestOrigin
+    : 'https://outreach.ishsitotombe.co.uk';
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Vary': 'Origin',
+  };
+}
+
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20251001-v1:0';
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 
@@ -91,6 +105,13 @@ function detectTechStack(html) {
 // ── Main handler ────────────────────────────────────────────────────────────
 
 export const handler = async (event) => {
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  const CORS = corsHeaders(origin);
+
+  // Top-level guard: any unhandled exception returns CORS headers so browsers
+  // get a readable error instead of an opaque CORS block.
+  try {
+
   if (event.requestContext?.http?.method === 'OPTIONS') {
     return { statusCode: 200, headers: CORS, body: '' };
   }
@@ -278,4 +299,13 @@ Return ONLY the JSON.`;
     headers: { ...CORS, 'Content-Type': 'application/json' },
     body: JSON.stringify({ enrichment, changesSummary }),
   };
+
+  } catch (e) {
+    // Outer catch: ensures CORS headers are always present even on unexpected failures.
+    return {
+      statusCode: 500,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Internal server error', details: e.message }),
+    };
+  }
 };

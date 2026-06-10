@@ -191,6 +191,34 @@ Resources:
             Path: /enrich
             Method: OPTIONS
 
+  # ── Portfolio demo: generate + send via Resend ───────────────────────────
+  # Requires SSM param: /outreach/resend_api_key
+  # Resend sender domain: demo@ishsitotombe.co.uk must be verified in Resend.
+  DemoSendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: demo-send.handler
+      MemorySize: 512
+      Timeout: 60
+      Policies:
+        - AmazonBedrockFullAccess
+      Environment:
+        Variables:
+          RESEND_API_KEY: !Sub '{{resolve:ssm:/outreach/resend_api_key}}'
+          ALLOWED_ORIGIN: 'https://ishsitotombe.co.uk'
+      Events:
+        DemoSendPost:
+          Type: HttpApi
+          Properties:
+            Path: /demo-send
+            Method: POST
+        DemoSendOptions:
+          Type: HttpApi
+          Properties:
+            Path: /demo-send
+            Method: OPTIONS
+
 Outputs:
   OutreachApiUrl:
     Description: 'API Gateway base URL'

@@ -1,23 +1,38 @@
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 
-const bedrock = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION || 'eu-west-2' });
+const ALLOWED_ORIGINS = new Set([
+  'https://outreach.ishsitotombe.co.uk',
+  'https://ishsitotombe.co.uk',
+  'https://www.ishsitotombe.co.uk',
+]);
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || 'https://outreach.ishsitotombe.co.uk',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type',
-};
+function corsHeaders(requestOrigin) {
+  const origin = ALLOWED_ORIGINS.has(requestOrigin)
+    ? requestOrigin
+    : 'https://outreach.ishsitotombe.co.uk';
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Vary': 'Origin',
+  };
+}
 
 export const handler = async (event) => {
+  const origin = event.headers?.origin || event.headers?.Origin || '';
+  const CORS = corsHeaders(origin);
+
+  try {
+
   if (event.requestContext?.http?.method === 'OPTIONS') {
-    return { statusCode: 200, headers: corsHeaders, body: '' };
+    return { statusCode: 200, headers: CORS, body: '' };
   }
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch {
     return {
       statusCode: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS, 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Invalid JSON' })
     };
   }
@@ -37,9 +52,11 @@ Subject: [short subject line, title case, no ALL CAPS, max 8 words]
 
 Output only the email. No commentary.`;
 
+  const bedrock = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION || 'eu-west-2' });
+
   try {
     const command = new InvokeModelCommand({
-      modelId: 'us.anthropic.claude-sonnet-4-5',
+      modelId: process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20251001-v1:0',
       contentType: 'application/json',
       accept: 'application/json',
       body: JSON.stringify({
@@ -56,14 +73,22 @@ Output only the email. No commentary.`;
 
     return {
       statusCode: 200,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS, 'Content-Type': 'application/json' },
       body: JSON.stringify({ result })
     };
   } catch (e) {
     return {
       statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...CORS, 'Content-Type': 'application/json' },
       body: JSON.stringify({ error: 'Generation failed', details: e.message })
+    };
+  }
+
+  } catch (e) {
+    return {
+      statusCode: 500,
+      headers: { ...CORS, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Internal server error', details: e.message }),
     };
   }
 };

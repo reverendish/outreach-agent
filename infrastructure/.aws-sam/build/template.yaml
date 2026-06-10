@@ -191,6 +191,33 @@ Resources:
             Method: OPTIONS
     Metadata:
       SamResourceId: EnrichFunction
+  DemoSendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: DemoSendFunction
+      Handler: demo-send.handler
+      MemorySize: 512
+      Timeout: 60
+      Policies:
+      - AmazonBedrockFullAccess
+      Environment:
+        Variables:
+          RESEND_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/resend_api_key}}'
+          ALLOWED_ORIGIN: https://ishsitotombe.co.uk
+      Events:
+        DemoSendPost:
+          Type: HttpApi
+          Properties:
+            Path: /demo-send
+            Method: POST
+        DemoSendOptions:
+          Type: HttpApi
+          Properties:
+            Path: /demo-send
+            Method: OPTIONS
+    Metadata:
+      SamResourceId: DemoSendFunction
 Outputs:
   OutreachApiUrl:
     Description: API Gateway base URL

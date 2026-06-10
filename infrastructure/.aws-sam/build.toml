@@ -7,6 +7,6 @@ architecture = "x86_64"
 handler = "search.handler"
 manifest_hash = ""
 packagetype = "Zip"
-functions = ["SearchFunction", "OfficersFunction", "GenerateFunction", "CHLookupFunction", "WebEnrichmentFunction", "EnrichmentSynthesisFunction", "EnrichFunction"]
+functions = ["SearchFunction", "OfficersFunction", "GenerateFunction", "CHLookupFunction", "WebEnrichmentFunction", "EnrichmentSynthesisFunction", "EnrichFunction", "DemoSendFunction"]
 
 [layer_build_definitions]
