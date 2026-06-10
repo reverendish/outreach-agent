@@ -10,6 +10,12 @@ Globals:
       Variables:
         BEDROCK_REGION: eu-west-2
         ALLOWED_ORIGIN: 'https://outreach.ishsitotombe.co.uk'
+  HttpApi:
+    # Rate limiting — protects against abuse and runaway Bedrock costs.
+    # 5 req/s sustained, burst to 20. Redeploy with sam build && sam deploy to apply.
+    DefaultRouteSettings:
+      ThrottlingBurstLimit: 20
+      ThrottlingRateLimit: 5
 
 Resources:
 

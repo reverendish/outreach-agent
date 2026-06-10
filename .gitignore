@@ -16,5 +16,7 @@ out/
 repomix-output.xml
 
 # security — credentials and data exports
-*credentials*
+*credentials*.csv
+*credentials*.json
+*credentials*.env
 *.csv

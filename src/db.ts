@@ -54,17 +54,15 @@ export class OutreachDB extends Dexie {
 export const db = new OutreachDB();
 
 // ─── Settings helpers (stored in localStorage, not Dexie) ──────────────────
-// Credentials and app-level config are NOT stored in IndexedDB to keep them
-// out of structured storage that could be exported accidentally.
+// App-level config is NOT stored in IndexedDB to keep it out of structured
+// storage that could be exported accidentally.
+// Note: AI/enrichment credentials are server-side (Lambda IAM role) —
+// users don't provide AWS keys.
 
 const SETTINGS_KEY = 'outreach_settings';
 
 export interface StoredSettings {
   activeProfileId: string | null;
-  awsAccessKeyId: string;
-  awsSecretAccessKey: string;
-  awsRegion: string;
-  braveApiKey: string;
   sesFromAddress: string;
   dailySendLimit: number;
   onboardingComplete: boolean;
@@ -72,10 +70,6 @@ export interface StoredSettings {
 
 const DEFAULT_SETTINGS: StoredSettings = {
   activeProfileId: null,
-  awsAccessKeyId: '',
-  awsSecretAccessKey: '',
-  awsRegion: 'eu-west-2',
-  braveApiKey: '',
   sesFromAddress: '',
   dailySendLimit: 50,
   onboardingComplete: false,

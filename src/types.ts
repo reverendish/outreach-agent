@@ -361,13 +361,10 @@ export interface SuppressionEntry {
 }
 
 // ─── App settings (stored locally, not in Dexie) ───────────────────────────
+// Note: API credentials (Bedrock, Companies House, Brave) are server-side only.
 
 export interface AppSettings {
   activeProfileId: string | null;
-  awsAccessKeyId: string;
-  awsSecretAccessKey: string;
-  awsRegion: string;
-  braveApiKey: string;
   sesFromAddress: string;
   onboardingComplete: boolean;
 }

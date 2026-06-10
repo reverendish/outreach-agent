@@ -10,9 +10,9 @@ const SECTORS = [
   "Marketing & Media", "Property", "Transport & Logistics", "Food & Beverage", "Other",
 ];
 
-const STEPS = ["Profile", "Email style", "AWS credentials", "Email sending"];
+const STEPS = ["Profile", "Email style", "Email sending"];
 
-type StepId = 0 | 1 | 2 | 3;
+type StepId = 0 | 1 | 2;
 
 export default function Onboarding() {
   const router = useRouter();
@@ -32,13 +32,7 @@ export default function Onboarding() {
   const [emailTone, setEmailTone] = useState<Profile["emailTone"]>("conversational");
   const [emailLength, setEmailLength] = useState<Profile["emailLength"]>("medium");
 
-  // Step 2 — AWS
-  const [awsAccessKeyId, setAwsAccessKeyId] = useState("");
-  const [awsSecretAccessKey, setAwsSecretAccessKey] = useState("");
-  const [awsRegion, setAwsRegion] = useState("eu-west-2");
-  const [braveApiKey, setBraveApiKey] = useState("");
-
-  // Step 3 — SES
+  // Step 2 — SES
   const [sesFromAddress, setSesFromAddress] = useState("");
 
   const toggleSector = (s: string) =>
@@ -49,8 +43,7 @@ export default function Onboarding() {
   const canProceed = (): boolean => {
     if (step === 0) return !!(profileName && companyName && yourName && companyDescription && valueProposition);
     if (step === 1) return !!(emailTone && emailLength);
-    if (step === 2) return !!(awsAccessKeyId && awsSecretAccessKey && awsRegion);
-    return true; // step 3 — SES optional, can finish later
+    return true; // step 2 — SES optional
   };
 
   const finish = async () => {
@@ -74,15 +67,11 @@ export default function Onboarding() {
       await db.profiles.add(profile);
       saveSettings({
         activeProfileId: id,
-        awsAccessKeyId: awsAccessKeyId.trim(),
-        awsSecretAccessKey: awsSecretAccessKey.trim(),
-        awsRegion: awsRegion.trim(),
-        braveApiKey: braveApiKey.trim(),
         sesFromAddress: sesFromAddress.trim(),
         onboardingComplete: true,
       });
       router.push("/");
-    } catch (e) {
+    } catch {
       setError("Something went wrong saving your profile. Please try again.");
     } finally {
       setSaving(false);
@@ -90,7 +79,7 @@ export default function Onboarding() {
   };
 
   const next = () => {
-    if (step < 3) setStep((s) => (s + 1) as StepId);
+    if (step < 2) setStep((s) => (s + 1) as StepId);
     else finish();
   };
 
@@ -289,43 +278,11 @@ export default function Onboarding() {
             </>
           )}
 
-          {/* ── Step 2: AWS credentials ──────────────────────────────────────── */}
+          {/* ── Step 2: Email sending ────────────────────────────────────────── */}
           {step === 2 && (
             <>
               <p style={{ fontSize: "0.82rem", color: "var(--muted)", lineHeight: 1.6 }}>
-                AI generation and enrichment run via your own AWS account. Your credentials are stored locally and never sent to any server other than AWS.
-              </p>
-              <div>
-                <label style={labelStyle}>AWS Access Key ID</label>
-                <input value={awsAccessKeyId} onChange={e => setAwsAccessKeyId(e.target.value)} placeholder="AKIA..." style={inputStyle} spellCheck={false} />
-              </div>
-              <div>
-                <label style={labelStyle}>AWS Secret Access Key</label>
-                <input type="password" value={awsSecretAccessKey} onChange={e => setAwsSecretAccessKey(e.target.value)} placeholder="••••••••" style={inputStyle} />
-              </div>
-              <div>
-                <label style={labelStyle}>AWS Region</label>
-                <select value={awsRegion} onChange={e => setAwsRegion(e.target.value)} style={inputStyle}>
-                  <option value="eu-west-2">eu-west-2 (London)</option>
-                  <option value="eu-west-1">eu-west-1 (Ireland)</option>
-                  <option value="us-east-1">us-east-1 (N. Virginia)</option>
-                </select>
-              </div>
-              <div>
-                <label style={labelStyle}>Brave Search API key</label>
-                <input value={braveApiKey} onChange={e => setBraveApiKey(e.target.value)} placeholder="BSA..." style={inputStyle} spellCheck={false} />
-                <p style={{ marginTop: 4, fontSize: "0.75rem", color: "var(--faint)" }}>
-                  Used for company enrichment. Free tier: 2,000 searches/month.
-                </p>
-              </div>
-            </>
-          )}
-
-          {/* ── Step 3: Email sending ────────────────────────────────────────── */}
-          {step === 3 && (
-            <>
-              <p style={{ fontSize: "0.82rem", color: "var(--muted)", lineHeight: 1.6 }}>
-                Emails are sent via AWS SES. You need a verified sending address before you can send.
+                Emails are sent via AWS SES. You need a verified sending address before you can send. You can skip this and configure it later in Settings → Email.
               </p>
               <div>
                 <label style={labelStyle}>SES verified sending address</label>
@@ -350,12 +307,9 @@ export default function Onboarding() {
                   <li>Go to AWS Console → SES → Verified identities</li>
                   <li>Click Create identity → Email address</li>
                   <li>Enter your address and click Create</li>
-                  <li>Click the verification link in the email AWS sends you</li>
+                  <li>Click the verification link AWS sends you</li>
                 </ol>
               </div>
-              <p style={{ fontSize: "0.75rem", color: "var(--faint)" }}>
-                You can skip this and add it later in Settings → Email. Email sending will be disabled until a verified address is configured.
-              </p>
             </>
           )}
 
@@ -366,7 +320,7 @@ export default function Onboarding() {
           )}
         </div>
 
-        {/* Navigation buttons */}
+        {/* Navigation */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 20 }}>
           {step > 0 ? (
             <button
@@ -400,7 +354,7 @@ export default function Onboarding() {
               opacity: saving ? 0.6 : 1,
             }}
           >
-            {saving ? "Saving…" : step === 3 ? "Finish →" : "Continue →"}
+            {saving ? "Saving…" : step === 2 ? "Finish →" : "Continue →"}
           </button>
         </div>
       </div>
