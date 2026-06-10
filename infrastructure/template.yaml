@@ -12,6 +12,8 @@ Globals:
         ALLOWED_ORIGIN: 'https://outreach.ishsitotombe.co.uk'
 
 Resources:
+
+  # ── Legacy: CH search (used by contacts page) ─────────────────────────────
   SearchFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -37,6 +39,7 @@ Resources:
             Path: /search
             Method: OPTIONS
 
+  # ── Legacy: CH officers (used when adding a contact) ─────────────────────
   OfficersFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -62,11 +65,14 @@ Resources:
             Path: /officers
             Method: OPTIONS
 
+  # ── Email generation (Claude Sonnet via Bedrock) ──────────────────────────
   GenerateFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ../src/lambda/
       Handler: generate.handler
+      MemorySize: 512
+      Timeout: 60
       Policies:
         - AmazonBedrockFullAccess
       Events:
@@ -79,6 +85,104 @@ Resources:
           Type: HttpApi
           Properties:
             Path: /generate
+            Method: OPTIONS
+
+  # ── Full CH lookup (company + officers + filings) ─────────────────────────
+  CHLookupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: ch-lookup.handler
+      Environment:
+        Variables:
+          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
+      Events:
+        CHLookupPost:
+          Type: HttpApi
+          Properties:
+            Path: /ch-lookup
+            Method: POST
+        CHLookupOptions:
+          Type: HttpApi
+          Properties:
+            Path: /ch-lookup
+            Method: OPTIONS
+
+  # ── Web enrichment (website + Brave searches) ─────────────────────────────
+  WebEnrichmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: web-enrichment.handler
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          BRAVE_API_KEY: !Sub '{{resolve:ssm:/outreach/brave_api_key}}'
+      Events:
+        WebEnrichPost:
+          Type: HttpApi
+          Properties:
+            Path: /web-enrichment
+            Method: POST
+        WebEnrichOptions:
+          Type: HttpApi
+          Properties:
+            Path: /web-enrichment
+            Method: OPTIONS
+
+  # ── Enrichment synthesis (Bedrock: raw data → structured Enrichment) ──────
+  EnrichmentSynthesisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: enrichment-synthesis.handler
+      MemorySize: 512
+      Timeout: 60
+      Policies:
+        - AmazonBedrockFullAccess
+      Events:
+        EnrichSynthPost:
+          Type: HttpApi
+          Properties:
+            Path: /enrichment-synthesis
+            Method: POST
+        EnrichSynthOptions:
+          Type: HttpApi
+          Properties:
+            Path: /enrichment-synthesis
+            Method: OPTIONS
+
+  # ── Enrich (orchestrator: calls ch-lookup + web-enrichment + synthesis) ───
+  # This is what the frontend calls. Invokes the three functions above in sequence.
+  EnrichFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: enrich.handler
+      MemorySize: 256
+      Timeout: 90
+      Policies:
+        - AmazonBedrockFullAccess
+        - Statement:
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource: '*'
+      Environment:
+        Variables:
+          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
+          BRAVE_API_KEY: !Sub '{{resolve:ssm:/outreach/brave_api_key}}'
+      Events:
+        EnrichPost:
+          Type: HttpApi
+          Properties:
+            Path: /enrich
+            Method: POST
+        EnrichOptions:
+          Type: HttpApi
+          Properties:
+            Path: /enrich
             Method: OPTIONS
 
 Outputs:
