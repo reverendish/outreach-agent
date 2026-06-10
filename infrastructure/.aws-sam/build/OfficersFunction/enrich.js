@@ -19,7 +19,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20251001-v1:0';
+const MODEL_ID = 'us.anthropic.claude-sonnet-4-5';
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 

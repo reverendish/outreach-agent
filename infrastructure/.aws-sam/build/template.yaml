@@ -1,10 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Parameters:
-  CompaniesHouseApiKey:
-    Type: String
-    NoEcho: true
-    Description: Companies House API key
 Globals:
   Function:
     Runtime: nodejs20.x
@@ -14,15 +9,26 @@ Globals:
       Variables:
         BEDROCK_REGION: eu-west-2
         ALLOWED_ORIGIN: https://outreach.ishsitotombe.co.uk
-        COMPANIES_HOUSE_API_KEY:
-          Ref: CompaniesHouseApiKey
+  HttpApi:
+    DefaultRouteSettings:
+      ThrottlingBurstLimit: 20
+      ThrottlingRateLimit: 5
 Resources:
   SearchFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: SearchFunction
       Handler: search.handler
+      Environment:
+        Variables:
+          COMPANIES_HOUSE_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/companies_house_api_key}}'
       Events:
+        SearchPost:
+          Type: HttpApi
+          Properties:
+            Path: /search
+            Method: POST
         SearchGet:
           Type: HttpApi
           Properties:
@@ -40,7 +46,16 @@ Resources:
     Properties:
       CodeUri: OfficersFunction
       Handler: officers.handler
+      Environment:
+        Variables:
+          COMPANIES_HOUSE_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/companies_house_api_key}}'
       Events:
+        OfficersPost:
+          Type: HttpApi
+          Properties:
+            Path: /officers
+            Method: POST
         OfficersGet:
           Type: HttpApi
           Properties:
@@ -58,6 +73,8 @@ Resources:
     Properties:
       CodeUri: GenerateFunction
       Handler: generate.handler
+      MemorySize: 512
+      Timeout: 60
       Policies:
       - AmazonBedrockFullAccess
       Events:
@@ -73,6 +90,107 @@ Resources:
             Method: OPTIONS
     Metadata:
       SamResourceId: GenerateFunction
+  CHLookupFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: CHLookupFunction
+      Handler: ch-lookup.handler
+      Environment:
+        Variables:
+          COMPANIES_HOUSE_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/companies_house_api_key}}'
+      Events:
+        CHLookupPost:
+          Type: HttpApi
+          Properties:
+            Path: /ch-lookup
+            Method: POST
+        CHLookupOptions:
+          Type: HttpApi
+          Properties:
+            Path: /ch-lookup
+            Method: OPTIONS
+    Metadata:
+      SamResourceId: CHLookupFunction
+  WebEnrichmentFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: WebEnrichmentFunction
+      Handler: web-enrichment.handler
+      MemorySize: 512
+      Timeout: 60
+      Environment:
+        Variables:
+          BRAVE_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/brave_api_key}}'
+      Events:
+        WebEnrichPost:
+          Type: HttpApi
+          Properties:
+            Path: /web-enrichment
+            Method: POST
+        WebEnrichOptions:
+          Type: HttpApi
+          Properties:
+            Path: /web-enrichment
+            Method: OPTIONS
+    Metadata:
+      SamResourceId: WebEnrichmentFunction
+  EnrichmentSynthesisFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: EnrichmentSynthesisFunction
+      Handler: enrichment-synthesis.handler
+      MemorySize: 512
+      Timeout: 60
+      Policies:
+      - AmazonBedrockFullAccess
+      Events:
+        EnrichSynthPost:
+          Type: HttpApi
+          Properties:
+            Path: /enrichment-synthesis
+            Method: POST
+        EnrichSynthOptions:
+          Type: HttpApi
+          Properties:
+            Path: /enrichment-synthesis
+            Method: OPTIONS
+    Metadata:
+      SamResourceId: EnrichmentSynthesisFunction
+  EnrichFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: EnrichFunction
+      Handler: enrich.handler
+      MemorySize: 256
+      Timeout: 90
+      Policies:
+      - AmazonBedrockFullAccess
+      - Statement:
+        - Effect: Allow
+          Action:
+          - lambda:InvokeFunction
+          Resource: '*'
+      Environment:
+        Variables:
+          COMPANIES_HOUSE_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/companies_house_api_key}}'
+          BRAVE_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/brave_api_key}}'
+      Events:
+        EnrichPost:
+          Type: HttpApi
+          Properties:
+            Path: /enrich
+            Method: POST
+        EnrichOptions:
+          Type: HttpApi
+          Properties:
+            Path: /enrich
+            Method: OPTIONS
+    Metadata:
+      SamResourceId: EnrichFunction
 Outputs:
   OutreachApiUrl:
     Description: API Gateway base URL

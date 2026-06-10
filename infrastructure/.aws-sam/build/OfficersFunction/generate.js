@@ -14,10 +14,12 @@ export const handler = async (event) => {
   }
 
   let body;
-  try {
-    body = JSON.parse(event.body || '{}');
-  } catch {
-    return { statusCode: 400, headers: corsHeaders, body: JSON.stringify({ error: 'Invalid JSON' }) };
+  try { body = JSON.parse(event.body || '{}'); } catch {
+    return {
+      statusCode: 400,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'Invalid JSON' })
+    };
   }
 
   const { name, business, context } = body;
@@ -37,29 +39,31 @@ Output only the email. No commentary.`;
 
   try {
     const command = new InvokeModelCommand({
-      modelId: 'amazon.nova-pro-v1:0',
+      modelId: 'us.anthropic.claude-sonnet-4-5',
       contentType: 'application/json',
       accept: 'application/json',
       body: JSON.stringify({
-        messages: [{ role: 'user', content: [{ text: prompt }] }],
-        inferenceConfig: { maxTokens: 400, temperature: 0.7 }
+        anthropic_version: 'bedrock-2023-05-31',
+        max_tokens: 400,
+        temperature: 0.7,
+        messages: [{ role: 'user', content: prompt }],
       })
     });
 
     const response = await bedrock.send(command);
     const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    const result = responseBody.output.message.content[0].text;
+    const result = responseBody.content[0].text;
 
     return {
       statusCode: 200,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ result })
     };
-  } catch (error) {
+  } catch (e) {
     return {
       statusCode: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Failed to generate email' })
+      body: JSON.stringify({ error: 'Generation failed', details: e.message })
     };
   }
 };

@@ -1,8 +1,22 @@
 {
-  "name": "outreach-lambda",
-  "version": "1.0.0",
-  "type": "module",
+  "name": "outreach-agent",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
   "dependencies": {
-    "@aws-sdk/client-bedrock-runtime": "^3.0.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.0.0",
+    "next": "14.2.5",
+    "react": "^18",
+    "react-dom": "^18"
+  },
+  "devDependencies": {
+    "@netlify/plugin-nextjs": "^5",
+    "@types/node": "^20.19.42",
+    "@types/react": "^18.3.31",
+    "typescript": "^5.9.3"
   }
 }
