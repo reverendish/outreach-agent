@@ -86,11 +86,11 @@ describe('successful generation', () => {
   });
 
   it('uses BEDROCK_MODEL_ID env var when set', async () => {
-    process.env.BEDROCK_MODEL_ID = 'eu.anthropic.claude-sonnet-4-5-20251001-v1:0';
+    process.env.BEDROCK_MODEL_ID = 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
     mockBedrockSuccess('Subject: Test\n\nBody');
     await handler(makeEvent({ name: 'A', business: 'B', context: 'C' }));
     const callArg = mockSend.mock.calls[0][0];
-    expect(callArg.modelId).toBe('eu.anthropic.claude-sonnet-4-5-20251001-v1:0');
+    expect(callArg.modelId).toBe('eu.anthropic.claude-sonnet-4-5-20250929-v1:0');
   });
 
   it('falls back to EU model ID when BEDROCK_MODEL_ID not set', async () => {

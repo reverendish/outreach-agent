@@ -15,7 +15,7 @@ const CORS = {
   'Access-Control-Allow-Headers': 'Content-Type',
 };
 
-const MODEL_ID = 'us.anthropic.claude-sonnet-4-5';
+const MODEL_ID = 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
 
 async function bedrockCall(systemPrompt, userPrompt) {
   const command = new InvokeModelCommand({

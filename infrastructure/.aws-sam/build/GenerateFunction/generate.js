@@ -4,6 +4,7 @@ const ALLOWED_ORIGINS = new Set([
   'https://outreach.ishsitotombe.co.uk',
   'https://ishsitotombe.co.uk',
   'https://www.ishsitotombe.co.uk',
+  'http://localhost:3000',
 ]);
 
 function corsHeaders(requestOrigin) {
@@ -13,7 +14,7 @@ function corsHeaders(requestOrigin) {
   return {
     'Access-Control-Allow-Origin': origin,
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
     'Vary': 'Origin',
   };
 }
@@ -56,7 +57,7 @@ Output only the email. No commentary.`;
 
   try {
     const command = new InvokeModelCommand({
-      modelId: process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20251001-v1:0',
+      modelId: process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
       contentType: 'application/json',
       accept: 'application/json',
       body: JSON.stringify({

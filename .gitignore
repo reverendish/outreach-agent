@@ -10,6 +10,9 @@ out/
 .env.*.local
 .env.production
 
+# SAM build artifacts
+infrastructure/.aws-sam/
+
 # misc
 .DS_Store
 *.pem

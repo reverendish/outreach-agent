@@ -33,7 +33,7 @@ function corsHeaders(requestOrigin) {
   };
 }
 
-const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20251001-v1:0';
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
 
 // ── Shared helpers ──────────────────────────────────────────────────────────
 

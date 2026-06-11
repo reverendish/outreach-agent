@@ -9,11 +9,96 @@ Globals:
       Variables:
         BEDROCK_REGION: eu-west-2
         ALLOWED_ORIGIN: https://outreach.ishsitotombe.co.uk
+        PROSPECTS_TABLE:
+          Ref: ProspectsTable
   HttpApi:
     DefaultRouteSettings:
       ThrottlingBurstLimit: 20
       ThrottlingRateLimit: 5
 Resources:
+  ProspectsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName:
+        Fn::Sub: ${AWS::StackName}-prospects
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+      - AttributeName: userId
+        AttributeType: S
+      - AttributeName: companyNumber
+        AttributeType: S
+      - AttributeName: status
+        AttributeType: S
+      - AttributeName: contactedAt
+        AttributeType: S
+      KeySchema:
+      - AttributeName: userId
+        KeyType: HASH
+      - AttributeName: companyNumber
+        KeyType: RANGE
+      GlobalSecondaryIndexes:
+      - IndexName: ByStatus
+        KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: status
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+      - IndexName: ByContactedAt
+        KeySchema:
+        - AttributeName: userId
+          KeyType: HASH
+        - AttributeName: contactedAt
+          KeyType: RANGE
+        Projection:
+          ProjectionType: ALL
+  CRMFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: CRMFunction
+      Handler: crm.handler
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: ProspectsTable
+      Environment:
+        Variables:
+          OUTREACH_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/api_key}}'
+      Events:
+        CRMGet:
+          Type: HttpApi
+          Properties:
+            Path: /api/crm
+            Method: GET
+        CRMPost:
+          Type: HttpApi
+          Properties:
+            Path: /api/crm
+            Method: POST
+        CRMPatch:
+          Type: HttpApi
+          Properties:
+            Path: /api/crm/{companyNumber}
+            Method: PATCH
+        CRMDelete:
+          Type: HttpApi
+          Properties:
+            Path: /api/crm/{companyNumber}
+            Method: DELETE
+        CRMOptions:
+          Type: HttpApi
+          Properties:
+            Path: /api/crm
+            Method: OPTIONS
+        CRMOptions2:
+          Type: HttpApi
+          Properties:
+            Path: /api/crm/{companyNumber}
+            Method: OPTIONS
+    Metadata:
+      SamResourceId: CRMFunction
   SearchFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -191,6 +276,36 @@ Resources:
             Method: OPTIONS
     Metadata:
       SamResourceId: EnrichFunction
+  SendFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: SendFunction
+      Handler: send.handler
+      MemorySize: 256
+      Timeout: 30
+      Policies:
+      - DynamoDBCrudPolicy:
+          TableName:
+            Ref: ProspectsTable
+      Environment:
+        Variables:
+          RESEND_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/resend_api_key}}'
+          OUTREACH_API_KEY:
+            Fn::Sub: '{{resolve:ssm:/outreach/api_key}}'
+      Events:
+        SendPost:
+          Type: HttpApi
+          Properties:
+            Path: /send
+            Method: POST
+        SendOptions:
+          Type: HttpApi
+          Properties:
+            Path: /send
+            Method: OPTIONS
+    Metadata:
+      SamResourceId: SendFunction
   DemoSendFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -223,3 +338,7 @@ Outputs:
     Description: API Gateway base URL
     Value:
       Fn::Sub: https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com
+  ProspectsTableName:
+    Description: DynamoDB table name for prospects CRM
+    Value:
+      Ref: ProspectsTable

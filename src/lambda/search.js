@@ -1,8 +1,11 @@
 export const handler = async (event) => {
+  const requestOrigin = event.headers?.origin || event.headers?.Origin || '';
+  const ALLOWED = new Set(['https://outreach.ishsitotombe.co.uk', 'https://ishsitotombe.co.uk', 'http://localhost:3000']);
   const corsHeaders = {
-    'Access-Control-Allow-Origin': process.env.ALLOWED_ORIGIN || 'https://outreach.ishsitotombe.co.uk',
+    'Access-Control-Allow-Origin': ALLOWED.has(requestOrigin) ? requestOrigin : (process.env.ALLOWED_ORIGIN || 'https://outreach.ishsitotombe.co.uk'),
     'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
   };
 
   if (event.requestContext?.http?.method === 'OPTIONS') {
