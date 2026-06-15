@@ -5,6 +5,22 @@ import { ReactNode, useEffect, useState } from "react";
 import { db, getSettings, saveSettings } from "../src/db";
 import type { Profile } from "../src/types";
 
+function useTheme() {
+  const [theme, setTheme] = useState<"dark" | "light">("dark");
+  useEffect(() => {
+    const stored = (localStorage.getItem("theme") as "dark" | "light") || "dark";
+    setTheme(stored);
+    document.documentElement.setAttribute("data-theme", stored);
+  }, []);
+  const toggle = () => {
+    const next: "dark" | "light" = theme === "dark" ? "light" : "dark";
+    setTheme(next);
+    localStorage.setItem("theme", next);
+    document.documentElement.setAttribute("data-theme", next);
+  };
+  return { theme, toggle };
+}
+
 const NAV = [
   { href: "/",           label: "Dashboard" },
   { href: "/search",     label: "Search" },
@@ -19,6 +35,7 @@ const NAV = [
 export default function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
   const router = useRouter();
+  const { theme, toggle } = useTheme();
   const [profiles, setProfiles] = useState<Profile[]>([]);
   const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -178,10 +195,26 @@ export default function Shell({ children }: { children: ReactNode }) {
         </nav>
 
         {/* Footer */}
-        <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--border)" }}>
+        <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
           <a href="https://ishsitotombe.co.uk" style={{ fontSize: "0.72rem", color: "var(--faint)" }}>
-            ish.
+            ish
           </a>
+          <button
+            onClick={toggle}
+            aria-label="Toggle theme"
+            style={{
+              background: "var(--surface-2)",
+              border: "1px solid var(--border-2)",
+              borderRadius: "var(--radius-sm)",
+              color: "var(--muted)",
+              fontSize: "0.68rem",
+              padding: "4px 9px",
+              cursor: "pointer",
+              transition: "color 0.15s",
+            }}
+          >
+            {theme === "dark" ? "☀ Light" : "☾ Dark"}
+          </button>
         </div>
       </aside>
 
