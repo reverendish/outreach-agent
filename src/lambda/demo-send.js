@@ -54,13 +54,13 @@ export const handler = async (event) => {
     };
   }
 
-  const { name, business, recipientEmail } = body;
+  const { name, recipientEmail } = body;
 
-  if (!name || !business || !recipientEmail) {
+  if (!name || !recipientEmail) {
     return {
       statusCode: 400,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'name, business, and recipientEmail are required' }),
+      body: JSON.stringify({ error: 'name and recipientEmail are required' }),
     };
   }
 
@@ -86,17 +86,19 @@ export const handler = async (event) => {
 
   const prompt = `Write a short cold email from Ish, a developer based in Colchester who builds small automations for businesses.
 
-Contact name: ${name}
-Their business: ${business}
+Recipient: ${name}
+
+Rules:
+- If "${name}" looks like a person's name, greet them by first name
+- If "${name}" looks like a business or organisation name, open with "Hi ${name} team,"
+- 2-3 sentences max. Focus on saving time through automation — be genuine but don't assume their exact workflow
+- Sound like a real person. No buzzwords like "streamline", "leverage", "synergy". No "I hope this finds you well". Don't mention AI in the first sentence
+- End with one simple, low-pressure question
 
 Format:
 Subject: [short subject line, title case, no ALL CAPS, max 8 words]
 
-[greeting using first name if it looks like a person's name, otherwise "Hi there,"]
-
-[2-3 sentences max. Be specific about what you could help with based on their business. Sound like a real person. No buzzwords like "streamline", "leverage", "synergy". No "I hope this finds you well". Don't mention AI in the first sentence.]
-
-[one simple low-pressure question to end]
+[body]
 
 Output only the email. No commentary.`;
 
