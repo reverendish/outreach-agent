@@ -1,17 +1,13 @@
 /**
  * enrich Lambda — Orchestrator
- * Called by the frontend on the /enrich endpoint.
- * Runs ch-lookup + web-enrichment in parallel, then calls enrichment-synthesis.
- * Returns a complete Enrichment object ready to store in IndexedDB.
- *
- * This avoids needing the frontend to make 3 API calls and coordinate them.
+ * Called by the BFF on the /api/enrich route.
+ * Runs CH lookup + web enrichment inline, then synthesises with Bedrock.
+ * Returns a complete Enrichment object.
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 
-// Re-use the logic from ch-lookup and web-enrichment inline to avoid
-// Lambda-to-Lambda invocation latency and cross-function auth complexity.
-// In production, consider splitting if cold starts become an issue.
+// CH lookup and web enrichment run inline to avoid Lambda-to-Lambda latency.
 
 // Multi-origin allowlist — reflects the request origin so browsers accept the response.
 // Falling back to the outreach app origin keeps legacy single-origin clients working.

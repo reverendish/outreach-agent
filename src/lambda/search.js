@@ -17,15 +17,45 @@ export const handler = async (event) => {
     return { statusCode: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Unauthorised' }) };
   }
 
-  // Support both GET (query params) and POST (JSON body)
+  const apiKey = process.env.COMPANIES_HOUSE_API_KEY;
+  if (!apiKey) {
+    return {
+      statusCode: 500,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ error: 'API key not configured' })
+    };
+  }
+
+  const credentials = Buffer.from(`${apiKey}:`).toString('base64');
+  const qsp = event.queryStringParameters || {};
+
+  // GET ?officers=<company_number> — fetch company officers
+  if (event.requestContext?.http?.method === 'GET' && qsp.officers) {
+    try {
+      const url = `https://api.company-information.service.gov.uk/company/${encodeURIComponent(qsp.officers)}/officers?items_per_page=50`;
+      const res = await fetch(url, { headers: { Authorization: `Basic ${credentials}` } });
+      if (!res.ok) {
+        return { statusCode: 502, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Companies House error' }) };
+      }
+      const data = await res.json();
+      return {
+        statusCode: 200,
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ officers: data.items || [] })
+      };
+    } catch {
+      return { statusCode: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Internal server error' }) };
+    }
+  }
+
+  // POST (or GET ?q=) — company search
   let query;
   if (event.requestContext?.http?.method === 'GET') {
-    const { q } = event.queryStringParameters || {};
-    query = q;
+    query = qsp.q;
   } else {
     let body;
     try { body = JSON.parse(event.body || '{}'); } catch { }
-    query = body?.query || event.queryStringParameters?.q;
+    query = body?.query || qsp.q;
   }
 
   if (!query) {
@@ -36,22 +66,9 @@ export const handler = async (event) => {
     };
   }
 
-  const apiKey = process.env.COMPANIES_HOUSE_API_KEY;
-  if (!apiKey) {
-    return {
-      statusCode: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'API key not configured' })
-    };
-  }
-
   try {
-    const credentials = Buffer.from(`${apiKey}:`).toString('base64');
     const url = `https://api.company-information.service.gov.uk/search/companies?q=${encodeURIComponent(query)}&items_per_page=10`;
-
-    const res = await fetch(url, {
-      headers: { Authorization: `Basic ${credentials}` }
-    });
+    const res = await fetch(url, { headers: { Authorization: `Basic ${credentials}` } });
 
     if (!res.ok) {
       return {
@@ -82,7 +99,7 @@ export const handler = async (event) => {
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
       body: JSON.stringify({ companies })
     };
-  } catch (e) {
+  } catch {
     return {
       statusCode: 500,
       headers: { ...corsHeaders, 'Content-Type': 'application/json' },
