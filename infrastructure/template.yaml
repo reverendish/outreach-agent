@@ -1,6 +1,22 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
 
+Parameters:
+  InternalApiKey:
+    Type: String
+    NoEcho: true
+  SesFromEmail:
+    Type: String
+  ResendApiKey:
+    Type: String
+    NoEcho: true
+  CompaniesHouseApiKey:
+    Type: String
+    NoEcho: true
+  BraveApiKey:
+    Type: String
+    NoEcho: true
+
 Globals:
   Function:
     Runtime: nodejs20.x
@@ -9,7 +25,7 @@ Globals:
     Environment:
       Variables:
         BEDROCK_REGION: eu-west-2
-        INTERNAL_API_KEY: !Sub '{{resolve:ssm:/outreach/internal_api_key}}'
+        INTERNAL_API_KEY: !Ref InternalApiKey
         CONTACTS_TABLE: !Ref ContactsTable
         ACCOUNTS_TABLE: !Ref AccountsTable
         DRAFTS_TABLE: !Ref DraftsTable
@@ -141,21 +157,6 @@ Resources:
             TableName: !Ref ContactsTable
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - GET
-            - POST
-            - PATCH
-            - DELETE
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-
   # ── Account: user settings ─────────────────────────────────────────────────
   AccountFunction:
     Type: AWS::Serverless::Function
@@ -167,21 +168,6 @@ Resources:
             TableName: !Ref AccountsTable
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - GET
-            - PATCH
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-            - X-User-Email
-            - X-User-Name
-
   # ── Drafts: email draft CRUD ───────────────────────────────────────────────
   DraftsFunction:
     Type: AWS::Serverless::Function
@@ -193,21 +179,6 @@ Resources:
             TableName: !Ref DraftsTable
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - GET
-            - POST
-            - PATCH
-            - DELETE
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-
   # ── Suppression: opt-out list ─────────────────────────────────────────────
   SuppressionFunction:
     Type: AWS::Serverless::Function
@@ -219,20 +190,6 @@ Resources:
             TableName: !Ref SuppressionTable
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - GET
-            - POST
-            - DELETE
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-
   # ── Search: Companies House ────────────────────────────────────────────────
   SearchFunction:
     Type: AWS::Serverless::Function
@@ -241,22 +198,9 @@ Resources:
       Handler: search.handler
       Environment:
         Variables:
-          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
+          COMPANIES_HOUSE_API_KEY: !Ref CompaniesHouseApiKey
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - POST
-            - GET
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-
   # ── Enrich: company enrichment orchestrator ────────────────────────────────
   EnrichFunction:
     Type: AWS::Serverless::Function
@@ -274,22 +218,10 @@ Resources:
               Resource: '*'
       Environment:
         Variables:
-          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
-          BRAVE_API_KEY: !Sub '{{resolve:ssm:/outreach/brave_api_key}}'
+          COMPANIES_HOUSE_API_KEY: !Ref CompaniesHouseApiKey
+          BRAVE_API_KEY: !Ref BraveApiKey
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - POST
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-
   # ── Generate: Bedrock email writer ────────────────────────────────────────
   GenerateFunction:
     Type: AWS::Serverless::Function
@@ -302,18 +234,6 @@ Resources:
         - AmazonBedrockFullAccess
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - POST
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-
   # ── Send: provider-agnostic email send ────────────────────────────────────
   SendFunction:
     Type: AWS::Serverless::Function
@@ -336,24 +256,12 @@ Resources:
               Resource: '*'
       Environment:
         Variables:
-          RESEND_API_KEY: !Sub '{{resolve:ssm:/outreach/resend_api_key}}'
-          SES_FROM_EMAIL: !Sub '{{resolve:ssm:/outreach/ses_from_email}}'
+          RESEND_API_KEY: !Ref ResendApiKey
+          SES_FROM_EMAIL: !Ref SesFromEmail
           FROM_NAME: 'Ish Sitotombe'
           SES_REGION: eu-west-1
       FunctionUrlConfig:
         AuthType: NONE
-        Cors:
-          AllowOrigins:
-            - 'https://outreach.ishsitotombe.co.uk'
-            - 'http://localhost:3002'
-          AllowMethods:
-            - POST
-            - OPTIONS
-          AllowHeaders:
-            - Content-Type
-            - X-Internal-Key
-            - X-User-Id
-
   # ── Portfolio demo: generate + send via Resend (DO NOT MODIFY) ────────────
   DemoSendFunction:
     Type: AWS::Serverless::Function
@@ -366,7 +274,7 @@ Resources:
         - AmazonBedrockFullAccess
       Environment:
         Variables:
-          RESEND_API_KEY: !Sub '{{resolve:ssm:/outreach/resend_api_key}}'
+          RESEND_API_KEY: !Ref ResendApiKey
           ALLOWED_ORIGIN: 'https://ishsitotombe.co.uk'
       Events:
         DemoSendPost:
