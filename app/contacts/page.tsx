@@ -142,11 +142,66 @@ export default function Contacts() {
     setContacts(prev => prev.map(c => c.id === id ? { ...c, starred: !starred } : c));
   };
 
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+
   const bulkArchive = async () => {
     await Promise.all(
       Array.from(selectedIds).map(id => api.contacts.patch(id, { status: "archived" }))
     );
     setContacts(prev => prev.map(c => selectedIds.has(c.id) ? { ...c, status: "archived" as PipelineStage } : c));
+    setSelectedIds(new Set());
+  };
+
+  const bulkEnrich = async () => {
+    const ids = Array.from(selectedIds);
+    setBulkProgress(`Enriching 0 / ${ids.length}…`);
+    let done = 0;
+    await Promise.all(ids.map(async id => {
+      const c = contacts.find(x => x.id === id);
+      if (!c) return;
+      try {
+        const res = await api.enrich.run({
+          companyNumber: c.ch?.companyNumber ?? "",
+          companyName: c.ch?.companyName ?? "",
+          website: c.enrichment?.website?.url ?? undefined,
+          previousEnrichment: c.enrichment ?? undefined,
+        });
+        await api.contacts.patch(id, { enrichment: res.enrichment as Contact["enrichment"], status: "enriched" });
+        setContacts(prev => prev.map(x => x.id === id ? { ...x, enrichment: res.enrichment as Contact["enrichment"], status: "enriched" as PipelineStage } : x));
+      } catch { /* non-fatal — skip this contact */ }
+      done++;
+      setBulkProgress(`Enriching ${done} / ${ids.length}…`);
+    }));
+    setBulkProgress(null);
+    setSelectedIds(new Set());
+  };
+
+  const bulkGenerate = async () => {
+    const ids = Array.from(selectedIds);
+    setBulkProgress(`Generating drafts 0 / ${ids.length}…`);
+    let done = 0;
+    await Promise.all(ids.map(async id => {
+      const c = contacts.find(x => x.id === id);
+      if (!c) return;
+      try {
+        const result = await api.generate.draft({ contact: c, enrichment: c.enrichment, isFollowup: false, followupNumber: 0 });
+        const draft = await api.drafts.create({
+          contactId: id,
+          subject: result.subject,
+          body: result.body,
+          status: "draft" as const,
+          isFollowup: false,
+          followupNumber: 0,
+          provider: null,
+          sentAt: null,
+        });
+        await api.contacts.patch(id, { status: "draft_ready", latestDraftId: draft.id });
+        setContacts(prev => prev.map(x => x.id === id ? { ...x, status: "draft_ready" as PipelineStage, latestDraftId: draft.id } : x));
+      } catch { /* non-fatal */ }
+      done++;
+      setBulkProgress(`Generating drafts ${done} / ${ids.length}…`);
+    }));
+    setBulkProgress(null);
     setSelectedIds(new Set());
   };
 
@@ -173,10 +228,21 @@ export default function Contacts() {
               {filtered.length !== contacts.length ? ` · ${filtered.length} shown` : ""}
             </p>
           </div>
-          {selectedIds.size > 0 && (
+          {(selectedIds.size > 0 || bulkProgress) && (
             <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <span style={{ fontSize: "0.82rem", color: "var(--muted)" }}>{selectedIds.size} selected</span>
-              <button onClick={bulkArchive} className="btn btn-ghost btn-sm">Archive</button>
+              {bulkProgress ? (
+                <span style={{ fontSize: "0.82rem", color: "var(--muted)", display: "flex", alignItems: "center", gap: 6 }}>
+                  <span className="spinner" style={{ width: 12, height: 12 }} />
+                  {bulkProgress}
+                </span>
+              ) : (
+                <>
+                  <span style={{ fontSize: "0.82rem", color: "var(--muted)" }}>{selectedIds.size} selected</span>
+                  <button onClick={bulkEnrich} className="btn btn-ghost btn-sm">Enrich</button>
+                  <button onClick={bulkGenerate} className="btn btn-ghost btn-sm">Generate drafts</button>
+                  <button onClick={bulkArchive} className="btn btn-ghost btn-sm">Archive</button>
+                </>
+              )}
             </div>
           )}
         </div>
