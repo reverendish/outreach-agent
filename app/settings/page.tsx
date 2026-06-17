@@ -3,10 +3,10 @@ import Link from "next/link";
 import Shell from "../../components/Shell";
 
 const SETTINGS_SECTIONS = [
-  { href: "/settings/profiles", label: "Profiles", description: "Manage company contexts, email styles and style memory." },
-  { href: "/settings/credentials", label: "AWS & API credentials", description: "AWS keys, Bedrock region, Brave Search API key." },
-  { href: "/settings/email", label: "Email sending", description: "SES verified sending address and daily sending limits." },
-  { href: "/settings/suppression", label: "Suppression list", description: "Contacts who have opted out. Read-only except for manual removal." },
+  { href: "/settings/account", label: "Account & automation", description: "Sending identity, automation toggles, trust ramp." },
+  { href: "/settings/email", label: "Email sending", description: "SES verified address, fallback to Resend." },
+  { href: "/settings/suppression", label: "Suppression list", description: "Opted-out addresses. Manual removal only." },
+  { href: "/settings/credentials", label: "Integrations", description: "Bedrock, Companies House, Brave Search — all server-side." },
 ];
 
 export default function Settings() {

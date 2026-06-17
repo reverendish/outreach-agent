@@ -1,144 +1,165 @@
 /**
- * send Lambda — sends a real outreach email via Resend, then updates
- * the prospect's CRM record in DynamoDB.
+ * Send Lambda — provider-agnostic email sending + CRM status update.
  *
- * POST /send
- * Body: { companyNumber, recipientEmail, subject, body }
- * Auth: Bearer <OUTREACH_API_KEY>
+ * POST /
+ * Body: { contactId, draftId, recipientEmail, subject, body, provider? }
+ *
+ * Auth: X-Internal-Key + X-User-Id (injected by BFF)
+ *
+ * Provider precedence: SES → Resend → SMTP stub
+ * Determined by which env vars are set (SES_FROM_EMAIL takes priority).
  *
  * On success:
- *   - Sends email from outreach@ishsitotombe.co.uk via Resend
- *   - Updates CRM: status → 'contacted', lastEmailAt, emailsSent++
- *   - Returns { success: true, emailId }
+ *   - Updates draft status → 'sent', sentAt, provider
+ *   - Updates contact status → 'contacted', lastEmailAt, emailsSent++
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
+import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 
-const USER_ID = 'ish';
-const TABLE   = process.env.PROSPECTS_TABLE;
+const CONTACTS_TABLE = process.env.CONTACTS_TABLE;
+const DRAFTS_TABLE   = process.env.DRAFTS_TABLE;
 const dbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const sesClient = new SESv2Client({ region: process.env.SES_REGION || 'eu-west-1' });
 
-const ALLOWED_ORIGINS = new Set([
-  'https://outreach.ishsitotombe.co.uk',
-  'https://ishsitotombe.co.uk',
-  'https://www.ishsitotombe.co.uk',
-  'http://localhost:3000',
-]);
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Internal-Key, X-User-Id',
+};
 
-function cors(requestOrigin) {
-  const origin = ALLOWED_ORIGINS.has(requestOrigin)
-    ? requestOrigin
-    : 'https://outreach.ishsitotombe.co.uk';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Vary': 'Origin',
-  };
+function json(status, body) {
+  return { statusCode: status, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
-function json(statusCode, body, origin = '') {
-  return {
-    statusCode,
-    headers: { ...cors(origin), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  };
+function checkAuth(event) {
+  const expected = process.env.INTERNAL_API_KEY;
+  return expected && event.headers?.['x-internal-key'] === expected;
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-export const handler = async (event) => {
-  const origin = event.headers?.origin || event.headers?.Origin || '';
-  const method = event.requestContext?.http?.method || 'POST';
+async function sendViaSES(recipientEmail, subject, emailBody, fromEmail, fromName) {
+  const command = new SendEmailCommand({
+    FromEmailAddress: `${fromName} <${fromEmail}>`,
+    Destination: { ToAddresses: [recipientEmail] },
+    Content: {
+      Simple: {
+        Subject: { Data: subject },
+        Body: { Text: { Data: emailBody } },
+      },
+    },
+  });
+  const result = await sesClient.send(command);
+  return result.MessageId;
+}
 
-  if (method === 'OPTIONS') {
-    return { statusCode: 200, headers: cors(origin), body: '' };
-  }
-
-  // Auth
-  const expected = process.env.OUTREACH_API_KEY;
-  const auth = event.headers?.authorization || event.headers?.Authorization || '';
-  if (!expected || auth !== `Bearer ${expected}`) {
-    return json(401, { error: 'Unauthorised' }, origin);
-  }
-
+async function sendViaResend(recipientEmail, subject, emailBody, fromEmail, fromName) {
   const resendKey = process.env.RESEND_API_KEY;
-  if (!resendKey) {
-    return json(500, { error: 'Email service not configured' }, origin);
+  if (!resendKey) throw new Error('RESEND_API_KEY not set');
+
+  const res = await fetch('https://api.resend.com/emails', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${resendKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: `${fromName} <${fromEmail}>`, to: [recipientEmail], subject, text: emailBody }),
+  });
+
+  if (!res.ok) throw new Error(await res.text());
+  const data = await res.json();
+  return data.id;
+}
+
+async function dispatchEmail(recipientEmail, subject, emailBody) {
+  const sesFrom  = process.env.SES_FROM_EMAIL;
+  const fromName = process.env.FROM_NAME || 'Ish Sitotombe';
+
+  if (sesFrom) {
+    const id = await sendViaSES(recipientEmail, subject, emailBody, sesFrom, fromName);
+    return { provider: 'ses', messageId: id };
   }
+
+  const resendFrom = process.env.RESEND_FROM_EMAIL || 'outreach@ishsitotombe.co.uk';
+  const id = await sendViaResend(recipientEmail, subject, emailBody, resendFrom, fromName);
+  return { provider: 'resend', messageId: id };
+}
+
+export const handler = async (event) => {
+  const method = event.requestContext?.http?.method || 'POST';
+  if (method === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
+
+  if (!checkAuth(event)) return json(401, { error: 'Unauthorised' });
+  const userId = event.headers?.['x-user-id'];
+  if (!userId) return json(401, { error: 'Missing X-User-Id' });
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch {
-    return json(400, { error: 'Invalid JSON' }, origin);
+    return json(400, { error: 'Invalid JSON' });
   }
 
-  const { companyNumber, recipientEmail, subject, body: emailBody } = body;
-
-  if (!companyNumber || !recipientEmail || !subject || !emailBody) {
-    return json(400, { error: 'companyNumber, recipientEmail, subject, and body are required' }, origin);
+  const { contactId, draftId, recipientEmail, subject, body: emailBody } = body;
+  if (!contactId || !recipientEmail || !subject || !emailBody) {
+    return json(400, { error: 'contactId, recipientEmail, subject, body are required' });
   }
+  if (!EMAIL_RE.test(recipientEmail)) return json(400, { error: 'Invalid email address' });
 
-  if (!EMAIL_RE.test(recipientEmail)) {
-    return json(400, { error: 'Invalid email address' }, origin);
-  }
-
-  // ── Send via Resend ───────────────────────────────────────────────────────
-  let emailId;
-  try {
-    const res = await fetch('https://api.resend.com/emails', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${resendKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        from: 'Ish Sitotombe <outreach@ishsitotombe.co.uk>',
-        to: [recipientEmail],
-        subject,
-        text: emailBody,
-      }),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      return json(502, { error: 'Send failed', details: errText }, origin);
+  // Check suppression list via the contact record
+  if (contactId) {
+    const { Item } = await dbClient.send(new GetCommand({
+      TableName: CONTACTS_TABLE,
+      Key: { accountId: userId, id: contactId },
+    }));
+    if (Item?.suppressedEmails?.includes(recipientEmail)) {
+      return json(422, { error: 'Recipient is suppressed', suppressed: true });
     }
-
-    const resData = await res.json();
-    emailId = resData.id;
-  } catch (e) {
-    return json(502, { error: 'Send failed', details: e.message }, origin);
   }
 
-  // ── Update CRM record ─────────────────────────────────────────────────────
+  const now = new Date().toISOString();
+  let sendResult;
   try {
-    // Get current emailsSent count
-    const existing = await dbClient.send(new GetCommand({
-      TableName: TABLE,
-      Key: { userId: USER_ID, companyNumber },
-    }));
-
-    const currentCount = existing.Item?.emailsSent || 0;
-    const now = new Date().toISOString();
-
-    await dbClient.send(new UpdateCommand({
-      TableName: TABLE,
-      Key: { userId: USER_ID, companyNumber },
-      UpdateExpression: 'SET #status = :status, lastEmailAt = :now, emailsSent = :count, contactedAt = :contactedAt, updatedAt = :now',
-      ExpressionAttributeNames: { '#status': 'status' },
-      ExpressionAttributeValues: {
-        ':status': 'contacted',
-        ':now': now,
-        ':count': currentCount + 1,
-        ':contactedAt': existing.Item?.contactedAt === 'NONE' ? now : (existing.Item?.contactedAt || now),
-      },
-      ConditionExpression: 'attribute_exists(userId)',
-    }));
+    sendResult = await dispatchEmail(recipientEmail, subject, emailBody);
   } catch (e) {
-    // CRM update failure is non-fatal — email was already sent
-    console.error('CRM update failed:', e.message);
+    console.error('Send error:', e);
+    // Update draft with error status
+    if (draftId) {
+      await dbClient.send(new UpdateCommand({
+        TableName: DRAFTS_TABLE,
+        Key: { accountId: userId, id: draftId },
+        UpdateExpression: 'SET #s = :s, #err = :err, updatedAt = :now',
+        ExpressionAttributeNames: { '#s': 'status', '#err': 'error' },
+        ExpressionAttributeValues: { ':s': 'error', ':err': e.message, ':now': now },
+      })).catch(() => {});
+    }
+    return json(502, { error: 'Send failed', details: e.message });
   }
 
-  return json(200, { success: true, emailId }, origin);
+  // ── Update draft → sent ───────────────────────────────────────────────────
+  if (draftId) {
+    await dbClient.send(new UpdateCommand({
+      TableName: DRAFTS_TABLE,
+      Key: { accountId: userId, id: draftId },
+      UpdateExpression: 'SET #s = :s, sentAt = :now, provider = :p, updatedAt = :now',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'sent', ':now': now, ':p': sendResult.provider },
+    })).catch(e => console.error('Draft update failed:', e.message));
+  }
+
+  // ── Update contact → contacted ────────────────────────────────────────────
+  if (contactId) {
+    const { Item } = await dbClient.send(new GetCommand({
+      TableName: CONTACTS_TABLE,
+      Key: { accountId: userId, id: contactId },
+    })).catch(() => ({ Item: null }));
+
+    const emailsSent = (Item?.emailsSent || 0) + 1;
+    await dbClient.send(new UpdateCommand({
+      TableName: CONTACTS_TABLE,
+      Key: { accountId: userId, id: contactId },
+      UpdateExpression: 'SET #s = :s, lastEmailAt = :now, emailsSent = :count, contactedAt = if_not_exists(contactedAt, :now), updatedAt = :now',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':s': 'contacted', ':now': now, ':count': emailsSent },
+    })).catch(e => console.error('Contact update failed:', e.message));
+  }
+
+  return json(200, { success: true, messageId: sendResult.messageId, provider: sendResult.provider });
 };

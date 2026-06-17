@@ -116,6 +116,11 @@ export const handler = async (event) => {
     return { statusCode: 200, headers: CORS, body: '' };
   }
 
+  const internalKey = process.env.INTERNAL_API_KEY;
+  if (internalKey && event.headers?.['x-internal-key'] !== internalKey) {
+    return { statusCode: 401, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Unauthorised' }) };
+  }
+
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch {
     return { statusCode: 400, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Invalid JSON' }) };

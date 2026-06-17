@@ -1,95 +1,152 @@
+/**
+ * Generate Lambda — Bedrock-powered cold email writer.
+ *
+ * POST /
+ * Body: { contact, enrichment, isFollowup?, followupNumber?, previousEmails? }
+ *
+ * Auth: X-Internal-Key + X-User-Id (injected by BFF — no direct browser access)
+ */
+
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 
-const ALLOWED_ORIGINS = new Set([
-  'https://outreach.ishsitotombe.co.uk',
-  'https://ishsitotombe.co.uk',
-  'https://www.ishsitotombe.co.uk',
-  'http://localhost:3000',
-]);
+const MODEL  = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
+const REGION = process.env.BEDROCK_REGION   || 'eu-west-2';
+const bedrock = new BedrockRuntimeClient({ region: REGION });
 
-function corsHeaders(requestOrigin) {
-  const origin = ALLOWED_ORIGINS.has(requestOrigin)
-    ? requestOrigin
-    : 'https://outreach.ishsitotombe.co.uk';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Vary': 'Origin',
-  };
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Internal-Key, X-User-Id',
+};
+
+function json(status, body) {
+  return { statusCode: status, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+
+function checkAuth(event) {
+  const expected = process.env.INTERNAL_API_KEY;
+  return expected && event.headers?.['x-internal-key'] === expected;
+}
+
+function buildPrompt(contact, enrichment, isFollowup, followupNumber, previousEmails) {
+  const directorName = contact.directors?.[0]?.name || '';
+  const firstName = directorName.split(' ')[0] || '';
+  const companyName = contact.companyName || contact.title || 'the company';
+  const sector = contact.enrichment?.sector || enrichment?.sector || contact.sector || 'business services';
+
+  const painPoints = enrichment?.painPoints || contact.enrichment?.painPoints || [];
+  const whyNow = enrichment?.whyContactNow || contact.enrichment?.whyContactNow || '';
+  const services = enrichment?.services?.join(', ') || contact.enrichment?.services?.join(', ') || '';
+  const description = enrichment?.description || contact.enrichment?.description || '';
+
+  const contextBlock = [
+    description && `About them: ${description}`,
+    services && `Services: ${services}`,
+    painPoints.length > 0 && `Potential pain points: ${painPoints.join(', ')}`,
+    whyNow && `Why contact now: ${whyNow}`,
+  ].filter(Boolean).join('\n');
+
+  if (isFollowup && previousEmails?.length > 0) {
+    const prevChain = previousEmails.map((e, i) => `Email ${i + 1}:\n${e}`).join('\n\n---\n\n');
+    return `You are Ish, a developer based in Colchester who builds automations and software tools for UK businesses.
+
+You previously sent ${followupNumber} email(s) to ${firstName || 'the contact'} at ${companyName} (${sector}). Write follow-up email #${followupNumber + 1}.
+
+Previous emails:
+${prevChain}
+
+${contextBlock ? `Context:\n${contextBlock}\n` : ''}
+Rules:
+- Reference the previous email briefly but don't be passive-aggressive about no reply
+- Add something new — a different angle, a small insight, or a relevant example
+- 2–3 sentences max
+- End with a low-pressure question or offer to share an example
+- No buzzwords (streamline, leverage, synergy)
+- No "I hope this finds you well"
+- Sound like a real person
+
+Format:
+Subject: [short subject, max 8 words]
+
+[greeting]
+
+[email body]
+
+Output only the email. No commentary.`;
+  }
+
+  return `You are Ish, a developer based in Colchester who builds automations and software tools for UK businesses. You send short, specific cold emails to directors at UK SMBs.
+
+Target:
+- Company: ${companyName}
+- Sector: ${sector}
+- Director/contact: ${firstName || 'the director'}
+${contextBlock ? `\nContext:\n${contextBlock}` : ''}
+
+Write a cold outreach email. Rules:
+- Subject: max 8 words, title case, no ALL CAPS
+- Greeting: use first name if it looks like a person's name, otherwise "Hi there,"
+- Body: 2–3 sentences. Be specific to their industry. Sound like a real person.
+- No buzzwords (streamline, leverage, synergy). No "I hope this finds you well".
+- Do not mention AI in the first sentence.
+- End with one simple low-pressure question.
+
+Format:
+Subject: [subject line]
+
+[greeting]
+
+[email body]
+
+Output only the email. No commentary.`;
 }
 
 export const handler = async (event) => {
-  const origin = event.headers?.origin || event.headers?.Origin || '';
-  const CORS = corsHeaders(origin);
+  const method = event.requestContext?.http?.method || 'POST';
+  if (method === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
 
-  try {
-
-  if (event.requestContext?.http?.method === 'OPTIONS') {
-    return { statusCode: 200, headers: CORS, body: '' };
-  }
+  if (!checkAuth(event)) return json(401, { error: 'Unauthorised' });
+  const userId = event.headers?.['x-user-id'];
+  if (!userId) return json(401, { error: 'Missing X-User-Id' });
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch {
-    return {
-      statusCode: 400,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Invalid JSON' })
-    };
+    return json(400, { error: 'Invalid JSON' });
   }
 
-  const { name, business, context } = body;
+  const { contact, enrichment, isFollowup = false, followupNumber = 0, previousEmails = [] } = body;
+  if (!contact) return json(400, { error: 'contact is required' });
 
-  const prompt = `Write a short cold email from Ish, a developer based in Colchester who builds small automations for businesses. Business: ${business}. Director/contact name: ${name}. Extra context: ${context}.
-
-Format:
-Subject: [short subject line, title case, no ALL CAPS, max 8 words]
-
-[greeting using first name if it looks like a person's name, otherwise "Hi there,"]
-
-[2-3 sentences max. Be specific about what you could help with based on their industry. Sound like a real person. No buzzwords like streamline, leverage, synergy. No "I hope this finds you well". Don't mention AI in the first sentence.]
-
-[one simple low-pressure question to end]
-
-Output only the email. No commentary.`;
-
-  const bedrock = new BedrockRuntimeClient({ region: process.env.BEDROCK_REGION || 'eu-west-2' });
+  const prompt = buildPrompt(contact, enrichment, isFollowup, followupNumber, previousEmails);
 
   try {
     const command = new InvokeModelCommand({
-      modelId: process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0',
+      modelId: MODEL,
       contentType: 'application/json',
       accept: 'application/json',
       body: JSON.stringify({
         anthropic_version: 'bedrock-2023-05-31',
-        max_tokens: 400,
+        max_tokens: 500,
         temperature: 0.7,
         messages: [{ role: 'user', content: prompt }],
-      })
+      }),
     });
 
     const response = await bedrock.send(command);
-    const responseBody = JSON.parse(new TextDecoder().decode(response.body));
-    const result = responseBody.content[0].text;
+    const parsed = JSON.parse(new TextDecoder().decode(response.body));
+    const result = parsed.content[0].text;
 
-    return {
-      statusCode: 200,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ result })
-    };
-  } catch (e) {
-    return {
-      statusCode: 500,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Generation failed', details: e.message })
-    };
-  }
+    // Parse subject and body from the structured output
+    const lines = result.trim().split('\n');
+    const subjectLine = lines.find(l => l.toLowerCase().startsWith('subject:'));
+    const subject = subjectLine ? subjectLine.replace(/^subject:\s*/i, '').trim() : '';
+    const bodyStart = subjectLine ? lines.indexOf(subjectLine) + 1 : 0;
+    const emailBody = lines.slice(bodyStart).join('\n').trim();
+
+    return json(200, { result, subject, body: emailBody });
 
   } catch (e) {
-    return {
-      statusCode: 500,
-      headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Internal server error', details: e.message }),
-    };
+    console.error('Generation error:', e);
+    return json(500, { error: 'Generation failed', details: e.message });
   }
 };

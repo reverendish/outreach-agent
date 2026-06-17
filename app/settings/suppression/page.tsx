@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import Shell from "../../../components/Shell";
-import { db } from "../../../src/db";
+import * as api from "../../../src/api";
 import type { SuppressionEntry } from "../../../src/types";
 
 export default function SuppressionSettings() {
@@ -9,11 +9,11 @@ export default function SuppressionSettings() {
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   useEffect(() => {
-    db.suppression.orderBy("optedOutAt").reverse().toArray().then(setEntries);
+    api.suppression.list().then(setEntries);
   }, []);
 
   const remove = async (email: string) => {
-    await db.suppression.delete(email);
+    await api.suppression.remove(email);
     setEntries(prev => prev.filter(e => e.email !== email));
     setConfirmRemove(null);
   };
@@ -30,7 +30,7 @@ export default function SuppressionSettings() {
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>Suppression list</h1>
           <p style={{ fontSize: "0.875rem", color: "var(--muted)" }}>
-            {entries.length} suppressed address{entries.length !== 1 ? "es" : ""}. Suppressed contacts cannot be emailed. Removal is permanent and irreversible.
+            {entries.length} suppressed address{entries.length !== 1 ? "es" : ""}. Suppressed contacts cannot be emailed.
           </p>
         </div>
 
@@ -44,9 +44,7 @@ export default function SuppressionSettings() {
               <thead>
                 <tr style={{ background: "var(--surface-2)", borderBottom: "1px solid var(--border)" }}>
                   {["Email", "Company", "Source", "Date", ""].map(h => (
-                    <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--faint)" }}>
-                      {h}
-                    </th>
+                    <th key={h} style={{ padding: "10px 16px", textAlign: "left", fontSize: "0.7rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: "var(--faint)" }}>{h}</th>
                   ))}
                 </tr>
               </thead>

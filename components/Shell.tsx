@@ -1,69 +1,28 @@
 "use client";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
-import { ReactNode, useEffect, useState } from "react";
-import { db, getSettings, saveSettings } from "../src/db";
-import type { Profile } from "../src/types";
-
-function useTheme() {
-  const [theme, setTheme] = useState<"dark" | "light">("dark");
-  useEffect(() => {
-    const stored = (localStorage.getItem("theme") as "dark" | "light") || "dark";
-    setTheme(stored);
-    document.documentElement.setAttribute("data-theme", stored);
-  }, []);
-  const toggle = () => {
-    const next: "dark" | "light" = theme === "dark" ? "light" : "dark";
-    setTheme(next);
-    localStorage.setItem("theme", next);
-    document.documentElement.setAttribute("data-theme", next);
-  };
-  return { theme, toggle };
-}
+import { usePathname } from "next/navigation";
+import { ReactNode } from "react";
+import { useSession, signOut } from "next-auth/react";
+import ThemeToggle from "./ThemeToggle";
 
 const NAV = [
-  { href: "/",           label: "Dashboard" },
-  { href: "/search",     label: "Search" },
-  { href: "/prospects",  label: "Prospects" },
-  { href: "/compose",    label: "Compose" },
-  { href: "/contacts",   label: "Contacts"  },
-  { href: "/campaigns",  label: "Campaigns" },
-  { href: "/sequences",  label: "Sequences" },
-  { href: "/settings",   label: "Settings"  },
+  { href: "/",          label: "Dashboard" },
+  { href: "/search",    label: "Search"    },
+  { href: "/contacts",  label: "Contacts"  },
+  { href: "/compose",   label: "Compose"   },
+  { href: "/settings",  label: "Settings"  },
 ];
 
 export default function Shell({ children }: { children: ReactNode }) {
   const path = usePathname();
-  const router = useRouter();
-  const { theme, toggle } = useTheme();
-  const [profiles, setProfiles] = useState<Profile[]>([]);
-  const [activeProfile, setActiveProfile] = useState<Profile | null>(null);
-  const [dropdownOpen, setDropdownOpen] = useState(false);
-
-  useEffect(() => {
-    const { activeProfileId, onboardingComplete } = getSettings();
-    if (!onboardingComplete) {
-      router.push("/onboarding");
-      return;
-    }
-    db.profiles.toArray().then((all) => {
-      setProfiles(all);
-      const active = all.find((p) => p.id === activeProfileId) ?? all[0] ?? null;
-      setActiveProfile(active);
-      if (active && active.id !== activeProfileId) {
-        saveSettings({ activeProfileId: active.id });
-      }
-    });
-  }, [router]);
-
-  const switchProfile = (p: Profile) => {
-    setActiveProfile(p);
-    saveSettings({ activeProfileId: p.id });
-    setDropdownOpen(false);
-  };
+  const { data: session } = useSession();
 
   const isActive = (href: string) =>
     href === "/" ? path === "/" : path.startsWith(href);
+
+  const initials = session?.user?.name
+    ? session.user.name.split(" ").map((w: string) => w[0]).slice(0, 2).join("").toUpperCase()
+    : "?";
 
   return (
     <div style={{ display: "flex", minHeight: "100vh", background: "var(--bg)" }}>
@@ -82,91 +41,44 @@ export default function Shell({ children }: { children: ReactNode }) {
         height: "100vh",
         overflowY: "auto",
       }}>
-        {/* Profile badge + dropdown */}
-        <div style={{ marginBottom: 10, position: "relative" }}>
-          <button
-            onClick={() => setDropdownOpen(!dropdownOpen)}
-            style={{
-              width: "100%",
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 12px",
-              background: "var(--surface-2)",
-              border: "1px solid var(--border-2)",
-              borderRadius: "var(--radius-sm)",
-              cursor: "pointer",
-            }}
-          >
+        {/* User badge */}
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 12px",
+          background: "var(--surface-2)",
+          border: "1px solid var(--border-2)",
+          borderRadius: "var(--radius-sm)",
+          marginBottom: 10,
+        }}>
+          {session?.user?.image ? (
+            <img
+              src={session.user.image}
+              alt={session.user.name ?? ""}
+              style={{ width: 28, height: 28, borderRadius: "50%", flexShrink: 0 }}
+            />
+          ) : (
             <div style={{
               width: 28, height: 28,
               borderRadius: "50%",
               background: "var(--accent-dim)",
-              border: "1px solid rgba(245,166,35,0.4)",
+              border: "1px solid var(--border-2)",
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: "0.72rem", fontWeight: 700, color: "var(--accent)",
               flexShrink: 0,
             }}>
-              {activeProfile?.name?.[0]?.toUpperCase() ?? "?"}
-            </div>
-            <div style={{ flex: 1, textAlign: "left", overflow: "hidden" }}>
-              <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {activeProfile?.name ?? "No profile"}
-              </p>
-              <p style={{ fontSize: "0.68rem", color: "var(--faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {activeProfile?.companyName ?? "Set up a profile"}
-              </p>
-            </div>
-            <span style={{ color: "var(--faint)", fontSize: "0.6rem" }}>
-              {dropdownOpen ? "▲" : "▼"}
-            </span>
-          </button>
-
-          {dropdownOpen && (
-            <div style={{
-              position: "absolute",
-              top: "calc(100% + 4px)",
-              left: 0, right: 0,
-              background: "var(--surface-2)",
-              border: "1px solid var(--border-2)",
-              borderRadius: "var(--radius-sm)",
-              zIndex: 100,
-              overflow: "hidden",
-              boxShadow: "var(--shadow-lg)",
-            }}>
-              {profiles.map((p) => (
-                <button
-                  key={p.id}
-                  onClick={() => switchProfile(p)}
-                  style={{
-                    width: "100%",
-                    textAlign: "left",
-                    padding: "9px 12px",
-                    background: p.id === activeProfile?.id ? "var(--accent-dim)" : "transparent",
-                    border: "none",
-                    cursor: "pointer",
-                    fontSize: "0.82rem",
-                    color: p.id === activeProfile?.id ? "var(--accent)" : "var(--text)",
-                    fontWeight: p.id === activeProfile?.id ? 600 : 400,
-                  }}
-                >
-                  {p.name}
-                  <span style={{ display: "block", fontSize: "0.7rem", color: "var(--muted)", fontWeight: 400 }}>
-                    {p.companyName}
-                  </span>
-                </button>
-              ))}
-              <div style={{ borderTop: "1px solid var(--border)", padding: "6px 8px" }}>
-                <Link
-                  href="/settings/profiles/new"
-                  onClick={() => setDropdownOpen(false)}
-                  style={{ fontSize: "0.78rem", color: "var(--muted)", display: "block", padding: "4px 4px" }}
-                >
-                  + New profile
-                </Link>
-              </div>
+              {initials}
             </div>
           )}
+          <div style={{ flex: 1, overflow: "hidden" }}>
+            <p style={{ fontSize: "0.78rem", fontWeight: 600, color: "var(--text)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {session?.user?.name ?? "Signed in"}
+            </p>
+            <p style={{ fontSize: "0.68rem", color: "var(--faint)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+              {session?.user?.email ?? ""}
+            </p>
+          </div>
         </div>
 
         {/* Navigation */}
@@ -195,26 +107,29 @@ export default function Shell({ children }: { children: ReactNode }) {
         </nav>
 
         {/* Footer */}
-        <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--border)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
-          <a href="https://ishsitotombe.co.uk" style={{ fontSize: "0.72rem", color: "var(--faint)" }}>
-            ish
-          </a>
+        <div style={{
+          marginTop: "auto",
+          paddingTop: 16,
+          borderTop: "1px solid var(--border)",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 8,
+        }}>
           <button
-            onClick={toggle}
-            aria-label="Toggle theme"
+            onClick={() => signOut({ callbackUrl: "/login" })}
             style={{
-              background: "var(--surface-2)",
-              border: "1px solid var(--border-2)",
-              borderRadius: "var(--radius-sm)",
-              color: "var(--muted)",
-              fontSize: "0.68rem",
-              padding: "4px 9px",
+              background: "transparent",
+              border: "none",
               cursor: "pointer",
-              transition: "color 0.15s",
+              fontSize: "0.72rem",
+              color: "var(--faint)",
+              padding: 0,
             }}
           >
-            {theme === "dark" ? "☀ Light" : "☾ Dark"}
+            sign out
           </button>
+          <ThemeToggle />
         </div>
       </aside>
 

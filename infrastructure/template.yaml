@@ -9,56 +9,128 @@ Globals:
     Environment:
       Variables:
         BEDROCK_REGION: eu-west-2
-        ALLOWED_ORIGIN: 'https://outreach.ishsitotombe.co.uk'
-        PROSPECTS_TABLE: !Ref ProspectsTable
+        INTERNAL_API_KEY: !Sub '{{resolve:ssm:/outreach/internal_api_key}}'
+        CONTACTS_TABLE: !Ref ContactsTable
+        ACCOUNTS_TABLE: !Ref AccountsTable
+        DRAFTS_TABLE: !Ref DraftsTable
+        SUPPRESSION_TABLE: !Ref SuppressionTable
   HttpApi:
-    # Rate limiting — protects against abuse and runaway Bedrock costs.
-    # 5 req/s sustained, burst to 20. Redeploy with sam build && sam deploy to apply.
     DefaultRouteSettings:
       ThrottlingBurstLimit: 20
       ThrottlingRateLimit: 5
 
 Resources:
 
-  # ── DynamoDB: prospect CRM ─────────────────────────────────────────────────
-  ProspectsTable:
+  # ── DynamoDB: contacts (multi-tenant, replaces ProspectsTable) ─────────────
+  ContactsTable:
     Type: AWS::DynamoDB::Table
     Properties:
-      TableName: !Sub '${AWS::StackName}-prospects'
+      TableName: !Sub '${AWS::StackName}-contacts'
       BillingMode: PAY_PER_REQUEST
       AttributeDefinitions:
-        - AttributeName: userId
+        - AttributeName: accountId
           AttributeType: S
-        - AttributeName: companyNumber
+        - AttributeName: id
           AttributeType: S
         - AttributeName: status
           AttributeType: S
-        - AttributeName: contactedAt
+        - AttributeName: contactId
           AttributeType: S
       KeySchema:
-        - AttributeName: userId
+        - AttributeName: accountId
           KeyType: HASH
-        - AttributeName: companyNumber
+        - AttributeName: id
           KeyType: RANGE
       GlobalSecondaryIndexes:
         - IndexName: ByStatus
           KeySchema:
-            - AttributeName: userId
+            - AttributeName: accountId
               KeyType: HASH
             - AttributeName: status
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
-        - IndexName: ByContactedAt
+        - IndexName: ByContact
           KeySchema:
-            - AttributeName: userId
+            - AttributeName: accountId
               KeyType: HASH
-            - AttributeName: contactedAt
+            - AttributeName: contactId
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
 
-  # ── CRM CRUD Lambda ────────────────────────────────────────────────────────
+  # ── DynamoDB: users (email/password auth) ─────────────────────────────────
+  UsersTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-users'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: email
+          KeyType: HASH
+
+  # ── DynamoDB: accounts (per-user settings) ─────────────────────────────────
+  AccountsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-accounts'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: id
+          AttributeType: S
+      KeySchema:
+        - AttributeName: id
+          KeyType: HASH
+
+  # ── DynamoDB: email drafts ─────────────────────────────────────────────────
+  DraftsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-drafts'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: accountId
+          AttributeType: S
+        - AttributeName: id
+          AttributeType: S
+        - AttributeName: contactId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: accountId
+          KeyType: HASH
+        - AttributeName: id
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: ByContact
+          KeySchema:
+            - AttributeName: accountId
+              KeyType: HASH
+            - AttributeName: contactId
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+
+  # ── DynamoDB: suppression list ─────────────────────────────────────────────
+  SuppressionTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-suppression'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: accountId
+          AttributeType: S
+        - AttributeName: email
+          AttributeType: S
+      KeySchema:
+        - AttributeName: accountId
+          KeyType: HASH
+        - AttributeName: email
+          KeyType: RANGE
+
+  # ── CRM: contact CRUD ──────────────────────────────────────────────────────
   CRMFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -66,43 +138,102 @@ Resources:
       Handler: crm.handler
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref ProspectsTable
-      Environment:
-        Variables:
-          OUTREACH_API_KEY: !Sub '{{resolve:ssm:/outreach/api_key}}'
-      Events:
-        CRMGet:
-          Type: HttpApi
-          Properties:
-            Path: /api/crm
-            Method: GET
-        CRMPost:
-          Type: HttpApi
-          Properties:
-            Path: /api/crm
-            Method: POST
-        CRMPatch:
-          Type: HttpApi
-          Properties:
-            Path: /api/crm/{companyNumber}
-            Method: PATCH
-        CRMDelete:
-          Type: HttpApi
-          Properties:
-            Path: /api/crm/{companyNumber}
-            Method: DELETE
-        CRMOptions:
-          Type: HttpApi
-          Properties:
-            Path: /api/crm
-            Method: OPTIONS
-        CRMOptions2:
-          Type: HttpApi
-          Properties:
-            Path: /api/crm/{companyNumber}
-            Method: OPTIONS
+            TableName: !Ref ContactsTable
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - GET
+            - POST
+            - PATCH
+            - DELETE
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
 
-  # ── Legacy: CH search (used by contacts page) ─────────────────────────────
+  # ── Account: user settings ─────────────────────────────────────────────────
+  AccountFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: account.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref AccountsTable
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - GET
+            - PATCH
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
+            - X-User-Email
+            - X-User-Name
+
+  # ── Drafts: email draft CRUD ───────────────────────────────────────────────
+  DraftsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: drafts.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DraftsTable
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - GET
+            - POST
+            - PATCH
+            - DELETE
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
+
+  # ── Suppression: opt-out list ─────────────────────────────────────────────
+  SuppressionFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: suppression.handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SuppressionTable
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - GET
+            - POST
+            - DELETE
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
+
+  # ── Search: Companies House ────────────────────────────────────────────────
   SearchFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -111,139 +242,22 @@ Resources:
       Environment:
         Variables:
           COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
-      Events:
-        SearchPost:
-          Type: HttpApi
-          Properties:
-            Path: /search
-            Method: POST
-        SearchGet:
-          Type: HttpApi
-          Properties:
-            Path: /search
-            Method: GET
-        SearchOptions:
-          Type: HttpApi
-          Properties:
-            Path: /search
-            Method: OPTIONS
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - POST
+            - GET
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
 
-  # ── Legacy: CH officers (used when adding a contact) ─────────────────────
-  OfficersFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../src/lambda/
-      Handler: officers.handler
-      Environment:
-        Variables:
-          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
-      Events:
-        OfficersPost:
-          Type: HttpApi
-          Properties:
-            Path: /officers
-            Method: POST
-        OfficersGet:
-          Type: HttpApi
-          Properties:
-            Path: /officers
-            Method: GET
-        OfficersOptions:
-          Type: HttpApi
-          Properties:
-            Path: /officers
-            Method: OPTIONS
-
-  # ── Email generation (Claude Sonnet via Bedrock) ──────────────────────────
-  GenerateFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../src/lambda/
-      Handler: generate.handler
-      MemorySize: 512
-      Timeout: 60
-      Policies:
-        - AmazonBedrockFullAccess
-      Events:
-        GeneratePost:
-          Type: HttpApi
-          Properties:
-            Path: /generate
-            Method: POST
-        GenerateOptions:
-          Type: HttpApi
-          Properties:
-            Path: /generate
-            Method: OPTIONS
-
-  # ── Full CH lookup (company + officers + filings) ─────────────────────────
-  CHLookupFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../src/lambda/
-      Handler: ch-lookup.handler
-      Environment:
-        Variables:
-          COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
-      Events:
-        CHLookupPost:
-          Type: HttpApi
-          Properties:
-            Path: /ch-lookup
-            Method: POST
-        CHLookupOptions:
-          Type: HttpApi
-          Properties:
-            Path: /ch-lookup
-            Method: OPTIONS
-
-  # ── Web enrichment (website + Brave searches) ─────────────────────────────
-  WebEnrichmentFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../src/lambda/
-      Handler: web-enrichment.handler
-      MemorySize: 512
-      Timeout: 60
-      Environment:
-        Variables:
-          BRAVE_API_KEY: !Sub '{{resolve:ssm:/outreach/brave_api_key}}'
-      Events:
-        WebEnrichPost:
-          Type: HttpApi
-          Properties:
-            Path: /web-enrichment
-            Method: POST
-        WebEnrichOptions:
-          Type: HttpApi
-          Properties:
-            Path: /web-enrichment
-            Method: OPTIONS
-
-  # ── Enrichment synthesis (Bedrock: raw data → structured Enrichment) ──────
-  EnrichmentSynthesisFunction:
-    Type: AWS::Serverless::Function
-    Properties:
-      CodeUri: ../src/lambda/
-      Handler: enrichment-synthesis.handler
-      MemorySize: 512
-      Timeout: 60
-      Policies:
-        - AmazonBedrockFullAccess
-      Events:
-        EnrichSynthPost:
-          Type: HttpApi
-          Properties:
-            Path: /enrichment-synthesis
-            Method: POST
-        EnrichSynthOptions:
-          Type: HttpApi
-          Properties:
-            Path: /enrichment-synthesis
-            Method: OPTIONS
-
-  # ── Enrich (orchestrator: calls ch-lookup + web-enrichment + synthesis) ───
-  # This is what the frontend calls. Invokes the three functions above in sequence.
+  # ── Enrich: company enrichment orchestrator ────────────────────────────────
   EnrichFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -262,48 +276,85 @@ Resources:
         Variables:
           COMPANIES_HOUSE_API_KEY: !Sub '{{resolve:ssm:/outreach/companies_house_api_key}}'
           BRAVE_API_KEY: !Sub '{{resolve:ssm:/outreach/brave_api_key}}'
-      Events:
-        EnrichPost:
-          Type: HttpApi
-          Properties:
-            Path: /enrich
-            Method: POST
-        EnrichOptions:
-          Type: HttpApi
-          Properties:
-            Path: /enrich
-            Method: OPTIONS
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - POST
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
 
-  # ── Send real outreach email + update CRM ────────────────────────────────
+  # ── Generate: Bedrock email writer ────────────────────────────────────────
+  GenerateFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: ../src/lambda/
+      Handler: generate.handler
+      MemorySize: 512
+      Timeout: 60
+      Policies:
+        - AmazonBedrockFullAccess
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - POST
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
+
+  # ── Send: provider-agnostic email send ────────────────────────────────────
   SendFunction:
     Type: AWS::Serverless::Function
     Properties:
       CodeUri: ../src/lambda/
       Handler: send.handler
-      MemorySize: 256
-      Timeout: 30
       Policies:
         - DynamoDBCrudPolicy:
-            TableName: !Ref ProspectsTable
+            TableName: !Ref ContactsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref DraftsTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref SuppressionTable
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ses:SendEmail
+                - ses:SendRawEmail
+                - sesv2:SendEmail
+              Resource: '*'
       Environment:
         Variables:
           RESEND_API_KEY: !Sub '{{resolve:ssm:/outreach/resend_api_key}}'
-          OUTREACH_API_KEY: !Sub '{{resolve:ssm:/outreach/api_key}}'
-      Events:
-        SendPost:
-          Type: HttpApi
-          Properties:
-            Path: /send
-            Method: POST
-        SendOptions:
-          Type: HttpApi
-          Properties:
-            Path: /send
-            Method: OPTIONS
+          SES_FROM_EMAIL: !Sub '{{resolve:ssm:/outreach/ses_from_email}}'
+          FROM_NAME: 'Ish Sitotombe'
+          SES_REGION: eu-west-1
+      FunctionUrlConfig:
+        AuthType: NONE
+        Cors:
+          AllowOrigins:
+            - 'https://outreach.ishsitotombe.co.uk'
+            - 'http://localhost:3002'
+          AllowMethods:
+            - POST
+            - OPTIONS
+          AllowHeaders:
+            - Content-Type
+            - X-Internal-Key
+            - X-User-Id
 
-  # ── Portfolio demo: generate + send via Resend ───────────────────────────
-  # Requires SSM param: /outreach/resend_api_key
-  # Resend sender domain: demo@ishsitotombe.co.uk must be verified in Resend.
+  # ── Portfolio demo: generate + send via Resend (DO NOT MODIFY) ────────────
   DemoSendFunction:
     Type: AWS::Serverless::Function
     Properties:
@@ -330,9 +381,18 @@ Resources:
             Method: OPTIONS
 
 Outputs:
-  OutreachApiUrl:
-    Description: 'API Gateway base URL'
+  ContactsTableName:
+    Description: 'DynamoDB contacts table'
+    Value: !Ref ContactsTable
+  AccountsTableName:
+    Description: 'DynamoDB accounts table'
+    Value: !Ref AccountsTable
+  DraftsTableName:
+    Description: 'DynamoDB drafts table'
+    Value: !Ref DraftsTable
+  SuppressionTableName:
+    Description: 'DynamoDB suppression table'
+    Value: !Ref SuppressionTable
+  DemoApiUrl:
+    Description: 'API Gateway URL (demo-send only)'
     Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com'
-  ProspectsTableName:
-    Description: 'DynamoDB table name for prospects CRM'
-    Value: !Ref ProspectsTable

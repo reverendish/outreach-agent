@@ -1,197 +1,171 @@
 /**
- * CRM Lambda — DynamoDB-backed prospect store.
+ * CRM Lambda — DynamoDB-backed contact store, multi-tenant.
  *
- * Routes:
- *   GET    /api/crm                    → list all prospects for userId
- *   GET    /api/crm?status=contacted   → filter by status
- *   POST   /api/crm                    → upsert prospect
- *   PATCH  /api/crm/:companyNumber     → update status / notes / fields
- *   DELETE /api/crm/:companyNumber     → remove prospect
+ * Auth: X-Internal-Key (verified against INTERNAL_API_KEY env var) +
+ *       X-User-Id (the authenticated Google sub, injected by Next.js BFF).
  *
- * Auth: Bearer token from SSM /outreach/api_key, checked against OUTREACH_API_KEY env var.
- * userId is hardcoded as 'ish' — the single-tenant key. Ready to become the
- * decoded user sub when multi-tenant auth is added.
+ * Routes (path relative to function URL):
+ *   GET    /              → list contacts for userId
+ *   GET    /?status=x     → filter by status
+ *   GET    /:id           → get single contact
+ *   POST   /              → upsert contact
+ *   PATCH  /:id           → partial update
+ *   DELETE /:id           → remove contact
  */
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
-  DynamoDBDocumentClient,
-  PutCommand,
-  QueryCommand,
-  UpdateCommand,
-  DeleteCommand,
-  GetCommand,
+  DynamoDBDocumentClient, PutCommand, QueryCommand,
+  UpdateCommand, DeleteCommand, GetCommand,
 } from '@aws-sdk/lib-dynamodb';
 
-const USER_ID = 'ish';
-const TABLE   = process.env.PROSPECTS_TABLE;
-const client  = DynamoDBDocumentClient.from(new DynamoDBClient({}));
+const TABLE  = process.env.CONTACTS_TABLE;
+const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-const ALLOWED_ORIGINS = new Set([
-  'https://outreach.ishsitotombe.co.uk',
-  'https://ishsitotombe.co.uk',
-  'https://www.ishsitotombe.co.uk',
-  'http://localhost:3000',
+const CORS = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Internal-Key, X-User-Id',
+};
+
+function json(status, body) {
+  return { statusCode: status, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+}
+
+function checkInternalKey(event) {
+  const expected = process.env.INTERNAL_API_KEY;
+  if (!expected) return false;
+  return event.headers?.['x-internal-key'] === expected;
+}
+
+function getUserId(event) {
+  return event.headers?.['x-user-id'] || null;
+}
+
+// Fields allowed in a PATCH (prevents overwriting keys)
+const PATCHABLE = new Set([
+  'status', 'starred', 'tags', 'directors', 'enrichment',
+  'enrichmentError', 'latestDraftId', 'notes', 'suppressedEmails',
+  'lastEnrichedAt', 'updatedAt',
 ]);
 
-function cors(requestOrigin) {
-  const origin = ALLOWED_ORIGINS.has(requestOrigin)
-    ? requestOrigin
-    : 'https://outreach.ishsitotombe.co.uk';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    'Vary': 'Origin',
-  };
-}
-
-function json(statusCode, body, requestOrigin = '') {
-  return {
-    statusCode,
-    headers: { ...cors(requestOrigin), 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  };
-}
-
-function checkAuth(event) {
-  const expected = process.env.OUTREACH_API_KEY;
-  if (!expected) return false; // no key configured — deny
-  const auth = event.headers?.authorization || event.headers?.Authorization || '';
-  return auth === `Bearer ${expected}`;
-}
-
 export const handler = async (event) => {
-  const origin = event.headers?.origin || event.headers?.Origin || '';
   const method = event.requestContext?.http?.method || 'GET';
+  if (method === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
 
-  if (method === 'OPTIONS') {
-    return { statusCode: 200, headers: cors(origin), body: '' };
-  }
+  if (!checkInternalKey(event)) return json(401, { error: 'Unauthorised' });
+  const userId = getUserId(event);
+  if (!userId) return json(401, { error: 'Missing X-User-Id' });
 
-  if (!checkAuth(event)) {
-    return json(401, { error: 'Unauthorised' }, origin);
-  }
-
-  const path          = event.rawPath || '';
-  const companyNumber = event.pathParameters?.companyNumber || null;
+  const contactId = event.pathParameters?.id || null;
+  const now = new Date().toISOString();
 
   try {
-    // ── GET /api/crm ─────────────────────────────────────────────────────────
-    if (method === 'GET' && !companyNumber) {
+    // ── GET / (list) ──────────────────────────────────────────────────────────
+    if (method === 'GET' && !contactId) {
       const statusFilter = event.queryStringParameters?.status || null;
-
       let result;
       if (statusFilter) {
         result = await client.send(new QueryCommand({
           TableName: TABLE,
           IndexName: 'ByStatus',
-          KeyConditionExpression: 'userId = :uid AND #s = :status',
+          KeyConditionExpression: 'accountId = :uid AND #s = :status',
           ExpressionAttributeNames: { '#s': 'status' },
-          ExpressionAttributeValues: { ':uid': USER_ID, ':status': statusFilter },
+          ExpressionAttributeValues: { ':uid': userId, ':status': statusFilter },
         }));
       } else {
         result = await client.send(new QueryCommand({
           TableName: TABLE,
-          KeyConditionExpression: 'userId = :uid',
-          ExpressionAttributeValues: { ':uid': USER_ID },
+          KeyConditionExpression: 'accountId = :uid',
+          ExpressionAttributeValues: { ':uid': userId },
         }));
       }
-
-      return json(200, { prospects: result.Items || [] }, origin);
+      return json(200, result.Items || []);
     }
 
-    // ── POST /api/crm — upsert ───────────────────────────────────────────────
+    // ── GET /:id (single) ─────────────────────────────────────────────────────
+    if (method === 'GET' && contactId) {
+      const result = await client.send(new GetCommand({
+        TableName: TABLE,
+        Key: { accountId: userId, id: contactId },
+      }));
+      if (!result.Item) return json(404, { error: 'Not found' });
+      return json(200, result.Item);
+    }
+
+    // ── POST / (upsert) ───────────────────────────────────────────────────────
     if (method === 'POST') {
       let body;
       try { body = JSON.parse(event.body || '{}'); } catch {
-        return json(400, { error: 'Invalid JSON' }, origin);
+        return json(400, { error: 'Invalid JSON' });
       }
 
-      const { companyNumber: cn, companyName, chData } = body;
-      if (!cn) return json(400, { error: 'companyNumber required' }, origin);
-
-      const now = new Date().toISOString();
-
-      // Check if already exists to preserve createdAt
+      const id = body.id || crypto.randomUUID();
       const existing = await client.send(new GetCommand({
-        TableName: TABLE,
-        Key: { userId: USER_ID, companyNumber: cn },
+        TableName: TABLE, Key: { accountId: userId, id },
       }));
 
       const item = {
-        userId: USER_ID,
-        companyNumber: cn,
-        companyName: companyName || '',
+        ...body,
+        id,
+        accountId: userId,
         status: body.status || 'new',
-        notes: body.notes || '',
-        contactedAt: body.contactedAt || 'NONE',  // 'NONE' makes GSI sort work for uncontacted
-        lastEmailAt: body.lastEmailAt || null,
-        emailsSent: body.emailsSent || 0,
-        replyStatus: body.replyStatus || 'none',
-        chData: chData || null,
+        starred: body.starred ?? false,
+        tags: body.tags || [],
+        directors: body.directors || [],
         enrichment: body.enrichment || null,
+        latestDraftId: body.latestDraftId || null,
+        notes: body.notes || [],
+        suppressedEmails: body.suppressedEmails || [],
         createdAt: existing.Item?.createdAt || now,
         updatedAt: now,
+        lastEnrichedAt: body.lastEnrichedAt || null,
       };
 
       await client.send(new PutCommand({ TableName: TABLE, Item: item }));
-      return json(200, { prospect: item }, origin);
+      return json(200, item);
     }
 
-    // ── PATCH /api/crm/:companyNumber ────────────────────────────────────────
-    if (method === 'PATCH' && companyNumber) {
+    // ── PATCH /:id ────────────────────────────────────────────────────────────
+    if (method === 'PATCH' && contactId) {
       let body;
       try { body = JSON.parse(event.body || '{}'); } catch {
-        return json(400, { error: 'Invalid JSON' }, origin);
+        return json(400, { error: 'Invalid JSON' });
       }
 
-      // Build UpdateExpression dynamically from allowed fields
-      const ALLOWED = ['status', 'notes', 'contactedAt', 'lastEmailAt', 'emailsSent', 'replyStatus', 'enrichment', 'chData', 'companyName'];
-      const updates = Object.keys(body).filter(k => ALLOWED.includes(k));
+      const updates = Object.keys(body).filter(k => PATCHABLE.has(k));
+      if (updates.length === 0) return json(400, { error: 'No patchable fields' });
 
-      if (updates.length === 0) {
-        return json(400, { error: 'No valid fields to update' }, origin);
-      }
-
-      const now = new Date().toISOString();
-      const setExprs = updates.map((k, i) => `#f${i} = :v${i}`);
-      setExprs.push('#updatedAt = :updatedAt');
-
-      const exprNames = {};
-      const exprValues = { ':updatedAt': now };
-      updates.forEach((k, i) => {
-        exprNames[`#f${i}`] = k;
-        exprValues[`:v${i}`] = body[k];
-      });
-      exprNames['#updatedAt'] = 'updatedAt';
+      const setExprs = [...updates.map((k, i) => `#f${i} = :v${i}`), '#ua = :ua'];
+      const names = { '#ua': 'updatedAt' };
+      const values = { ':ua': now };
+      updates.forEach((k, i) => { names[`#f${i}`] = k; values[`:v${i}`] = body[k]; });
 
       const result = await client.send(new UpdateCommand({
         TableName: TABLE,
-        Key: { userId: USER_ID, companyNumber },
+        Key: { accountId: userId, id: contactId },
         UpdateExpression: `SET ${setExprs.join(', ')}`,
-        ExpressionAttributeNames: exprNames,
-        ExpressionAttributeValues: exprValues,
-        ConditionExpression: 'attribute_exists(userId)',
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+        ConditionExpression: 'attribute_exists(accountId)',
         ReturnValues: 'ALL_NEW',
       }));
-
-      return json(200, { prospect: result.Attributes }, origin);
+      return json(200, result.Attributes);
     }
 
-    // ── DELETE /api/crm/:companyNumber ────────────────────────────────────────
-    if (method === 'DELETE' && companyNumber) {
+    // ── DELETE /:id ───────────────────────────────────────────────────────────
+    if (method === 'DELETE' && contactId) {
       await client.send(new DeleteCommand({
-        TableName: TABLE,
-        Key: { userId: USER_ID, companyNumber },
+        TableName: TABLE, Key: { accountId: userId, id: contactId },
       }));
-      return json(200, { deleted: companyNumber }, origin);
+      return json(200, { deleted: contactId });
     }
 
-    return json(404, { error: 'Not found' }, origin);
+    return json(404, { error: 'Not found' });
 
   } catch (e) {
     console.error('CRM error:', e);
-    return json(500, { error: 'Internal server error', details: e.message }, origin);
+    if (e.name === 'ConditionalCheckFailedException') return json(404, { error: 'Not found' });
+    return json(500, { error: 'Internal server error', details: e.message });
   }
 };

@@ -12,6 +12,11 @@ export const handler = async (event) => {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
+  const internalKey = process.env.INTERNAL_API_KEY;
+  if (internalKey && event.headers?.['x-internal-key'] !== internalKey) {
+    return { statusCode: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Unauthorised' }) };
+  }
+
   // Support both GET (query params) and POST (JSON body)
   let query;
   if (event.requestContext?.http?.method === 'GET') {

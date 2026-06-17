@@ -1,313 +1,247 @@
 "use client";
-import { useEffect, useState, useCallback, Suspense } from "react";
+import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Shell from "../../components/Shell";
-import { crmApi, generateEmail, sendEmail, type Prospect } from "../lib/api";
+import * as api from "../../src/api";
+import type { Contact } from "../../src/types";
 
 function toTitleCase(s: string) {
   return s.toLowerCase().replace(/\b\w/g, c => c.toUpperCase());
 }
 
-type Step = "setup" | "generate" | "send";
+type Step = "setup" | "review" | "sent";
 
 function ComposeInner() {
   const router = useRouter();
   const params = useSearchParams();
-  const preselectedNumber = params.get("company");
+  const preselectedContactId = params.get("contactId");
 
   const [step, setStep] = useState<Step>("setup");
-  const [prospects, setProspects] = useState<Prospect[]>([]);
-  const [loadingProspects, setLoadingProspects] = useState(true);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [loadingContacts, setLoadingContacts] = useState(true);
 
-  // Setup fields
-  const [companyNumber, setCompanyNumber] = useState(preselectedNumber || "");
-  const [directorName, setDirectorName] = useState("");
+  const [contactId, setContactId] = useState(preselectedContactId || "");
   const [recipientEmail, setRecipientEmail] = useState("");
-  const [contextNotes, setContextNotes] = useState("");
+  const [isFollowup, setIsFollowup] = useState(false);
 
-  // Generated email
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [generating, setGenerating] = useState(false);
-  const [genError, setGenError] = useState<string | null>(null);
+  const [genError, setGenError] = useState("");
 
-  // Send state
   const [sending, setSending] = useState(false);
-  const [sent, setSent] = useState(false);
-  const [sendError, setSendError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState("");
+  const [savedDraftId, setSavedDraftId] = useState<string | null>(null);
 
   useEffect(() => {
-    crmApi.list().then(({ prospects: all }) => {
-      setProspects(all);
-    }).finally(() => setLoadingProspects(false));
+    api.contacts.list()
+      .then(setContacts)
+      .finally(() => setLoadingContacts(false));
   }, []);
 
-  const selectedProspect = prospects.find(p => p.companyNumber === companyNumber) || null;
+  const selectedContact = contacts.find(c => c.id === contactId) ?? null;
+  const primaryDirector = selectedContact?.directors?.find(d => !d.resignedOn) ?? selectedContact?.directors?.[0];
 
-  async function handleGenerate() {
-    if (!selectedProspect) return;
+  const handleGenerate = async () => {
+    if (!selectedContact) return;
     setGenerating(true);
-    setGenError(null);
+    setGenError("");
     try {
-      const { result } = await generateEmail({
-        name: directorName || "there",
-        business: `${toTitleCase(selectedProspect.companyName)}${selectedProspect.chData?.sic ? ` (${selectedProspect.chData.sic})` : ""}`,
-        context: contextNotes || "No additional context.",
+      const result = await api.generate.draft({
+        contact: selectedContact,
+        enrichment: selectedContact.enrichment,
+        isFollowup,
+        followupNumber: isFollowup ? 1 : 0,
       });
 
-      // Parse subject + body from result
-      const lines = result.trim().split("\n");
-      const subjectLine = lines.find(l => l.toLowerCase().startsWith("subject:"));
-      setSubject(subjectLine ? subjectLine.replace(/^subject:\s*/i, "").trim() : "Following up");
-      setBody(lines.filter(l => !l.toLowerCase().startsWith("subject:")).join("\n").trim());
-      setStep("generate");
-    } catch (err: unknown) {
-      setGenError(err instanceof Error ? err.message : "Generation failed.");
+      setSubject(result.subject || "");
+      setBody(result.body || "");
+
+      const draft = await api.drafts.create({
+        contactId: selectedContact.id,
+        subject: result.subject || "",
+        body: result.body || "",
+        status: "draft" as const,
+        isFollowup,
+        followupNumber: isFollowup ? 1 : 0,
+        provider: null,
+        sentAt: null,
+      });
+      setSavedDraftId(draft.id);
+
+      await api.contacts.patch(selectedContact.id, { status: "draft_ready", latestDraftId: draft.id });
+
+      setStep("review");
+    } catch (e: unknown) {
+      setGenError(e instanceof Error ? e.message : "Generation failed.");
     } finally {
       setGenerating(false);
     }
-  }
+  };
 
-  async function handleSend() {
-    if (!selectedProspect || !recipientEmail) return;
+  const handleSend = async () => {
+    if (!selectedContact || !recipientEmail || !savedDraftId) return;
     setSending(true);
-    setSendError(null);
+    setSendError("");
     try {
-      await sendEmail({
-        companyNumber: selectedProspect.companyNumber,
+      // Save any edits to the draft first
+      await api.drafts.patch(savedDraftId, { subject, body });
+      await api.send.email({
+        draftId: savedDraftId,
         recipientEmail,
-        subject,
-        body,
+        recipientName: primaryDirector?.name ?? "",
       });
-      setSent(true);
-      setStep("send");
-    } catch (err: unknown) {
-      setSendError(err instanceof Error ? err.message : "Send failed.");
+      setStep("sent");
+    } catch (e: unknown) {
+      setSendError(e instanceof Error ? e.message : "Send failed.");
     } finally {
       setSending(false);
     }
-  }
+  };
 
-  // ── Step: Setup ─────────────────────────────────────────────────────────
+  const handleSaveDraft = async () => {
+    if (savedDraftId) await api.drafts.patch(savedDraftId, { subject, body });
+    router.push(selectedContact ? `/contact/${selectedContact.id}` : "/contacts");
+  };
 
-  if (step === "setup") {
+  if (step === "sent") {
     return (
       <Shell>
-        <div style={{ maxWidth: 600 }}>
-          <div style={{ marginBottom: 28 }}>
-            <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
-              Compose Email
-            </h1>
-            <p style={{ fontSize: "0.875rem", color: "var(--muted)" }}>
-              Select a prospect, add context, then generate a personalised email.
-            </p>
-          </div>
-
-          <div style={{ display: "grid", gap: 18 }}>
-            {/* Company selector */}
-            <div>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-                Company *
-              </label>
-              {loadingProspects ? (
-                <p style={{ fontSize: "0.82rem", color: "var(--faint)" }}>Loading prospects…</p>
-              ) : (
-                <select
-                  value={companyNumber}
-                  onChange={e => setCompanyNumber(e.target.value)}
-                  style={{ width: "100%" }}
-                >
-                  <option value="">Select a company…</option>
-                  {prospects
-                    .filter(p => p.status !== "archived")
-                    .map(p => (
-                      <option key={p.companyNumber} value={p.companyNumber}>
-                        {toTitleCase(p.companyName)} ({p.companyNumber})
-                      </option>
-                    ))}
-                </select>
-              )}
-              {selectedProspect && (
-                <p style={{ fontSize: "0.72rem", color: "var(--faint)", marginTop: 4 }}>
-                  {selectedProspect.chData?.sic || ""} · {selectedProspect.chData?.address || ""}
-                </p>
-              )}
-            </div>
-
-            {/* Director name */}
-            <div>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-                Director / contact name
-              </label>
-              <input
-                type="text"
-                value={directorName}
-                onChange={e => setDirectorName(e.target.value)}
-                placeholder="e.g. Sarah, James — leave blank for 'Hi there'"
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            {/* Recipient email */}
-            <div>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-                Recipient email *
-              </label>
-              <input
-                type="email"
-                value={recipientEmail}
-                onChange={e => setRecipientEmail(e.target.value)}
-                placeholder="director@company.co.uk"
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            {/* Context */}
-            <div>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-                Extra context <span style={{ fontWeight: 400, color: "var(--faint)" }}>(optional)</span>
-              </label>
-              <textarea
-                value={contextNotes}
-                onChange={e => setContextNotes(e.target.value)}
-                placeholder="e.g. Recently moved premises, growing team, runs a café in Colchester…"
-                style={{ width: "100%", minHeight: 80, resize: "vertical" }}
-              />
-            </div>
-
-            {genError && (
-              <p style={{ fontSize: "0.875rem", color: "var(--status-red)" }}>{genError}</p>
-            )}
-
-            <button
-              className="btn btn-primary"
-              disabled={!companyNumber || !recipientEmail || generating}
-              onClick={handleGenerate}
-              style={{ justifyContent: "center" }}
-            >
-              {generating ? (
-                <><span className="spinner" style={{ width: 14, height: 14 }} /> Generating…</>
-              ) : "Generate email"}
+        <div style={{ maxWidth: 560, margin: "0 auto", textAlign: "center", paddingTop: 80 }}>
+          <div style={{ fontSize: "2.5rem", marginBottom: 16 }}>✓</div>
+          <h1 style={{ fontSize: "1.4rem", fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>Email sent</h1>
+          <p style={{ color: "var(--muted)", marginBottom: 32 }}>
+            {selectedContact ? toTitleCase(selectedContact.ch?.companyName ?? "") : "Contact"} has been contacted.
+          </p>
+          <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+            <button onClick={() => { setStep("setup"); setSubject(""); setBody(""); setSavedDraftId(null); }} className="btn btn-ghost">
+              Compose another
             </button>
+            {selectedContact && (
+              <button onClick={() => router.push(`/contact/${selectedContact.id}`)} className="btn btn-primary">
+                View contact →
+              </button>
+            )}
           </div>
         </div>
       </Shell>
     );
   }
-
-  // ── Step: Review + edit ──────────────────────────────────────────────────
-
-  if (step === "generate") {
-    return (
-      <Shell>
-        <div style={{ maxWidth: 640 }}>
-          <div style={{ marginBottom: 24 }}>
-            <button className="btn btn-ghost btn-sm" style={{ marginBottom: 16 }} onClick={() => setStep("setup")}>
-              ← Back
-            </button>
-            <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>
-              Review & Edit
-            </h1>
-            <p style={{ fontSize: "0.875rem", color: "var(--muted)" }}>
-              To: <strong>{recipientEmail}</strong> ·{" "}
-              {selectedProspect ? toTitleCase(selectedProspect.companyName) : companyNumber}
-            </p>
-          </div>
-
-          <div style={{ display: "grid", gap: 16 }}>
-            {/* Subject */}
-            <div>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-                Subject
-              </label>
-              <input
-                type="text"
-                value={subject}
-                onChange={e => setSubject(e.target.value)}
-                style={{ width: "100%" }}
-              />
-            </div>
-
-            {/* Body */}
-            <div>
-              <label style={{ fontSize: "0.82rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>
-                Body
-              </label>
-              <textarea
-                value={body}
-                onChange={e => setBody(e.target.value)}
-                style={{ width: "100%", minHeight: 220, resize: "vertical", lineHeight: 1.7, fontFamily: "var(--font-mono)", fontSize: "0.82rem" }}
-              />
-            </div>
-
-            {sendError && (
-              <p style={{ fontSize: "0.875rem", color: "var(--status-red)" }}>{sendError}</p>
-            )}
-
-            <div style={{ display: "flex", gap: 10 }}>
-              <button
-                className="btn btn-ghost"
-                disabled={generating}
-                onClick={handleGenerate}
-              >
-                {generating ? <><span className="spinner" style={{ width: 12, height: 12 }} /> Regenerating…</> : "Regenerate"}
-              </button>
-              <button
-                className="btn btn-primary"
-                style={{ flex: 1, justifyContent: "center" }}
-                disabled={sending || !subject || !body}
-                onClick={handleSend}
-              >
-                {sending ? <><span className="spinner" style={{ width: 14, height: 14 }} /> Sending…</> : `Send to ${recipientEmail}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      </Shell>
-    );
-  }
-
-  // ── Step: Sent ───────────────────────────────────────────────────────────
 
   return (
     <Shell>
-      <div style={{ maxWidth: 520, textAlign: "center", paddingTop: 60 }}>
-        <div style={{ fontSize: "2.5rem", marginBottom: 16 }}>✓</div>
-        <h1 style={{ fontSize: "1.35rem", fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>
-          Email sent
-        </h1>
-        <p style={{ fontSize: "0.875rem", color: "var(--muted)", marginBottom: 32 }}>
-          Sent to {recipientEmail} ·{" "}
-          {selectedProspect ? toTitleCase(selectedProspect.companyName) : companyNumber}
-        </p>
-        <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
-          <button className="btn btn-ghost" onClick={() => router.push("/prospects")}>
-            View prospects
-          </button>
-          <button
-            className="btn btn-primary"
-            onClick={() => {
-              setStep("setup");
-              setSubject("");
-              setBody("");
-              setSent(false);
-              setCompanyNumber(preselectedNumber || "");
-              setDirectorName("");
-              setRecipientEmail("");
-              setContextNotes("");
-            }}
-          >
-            Compose another
-          </button>
+      <div style={{ maxWidth: 720, display: "grid", gap: 24 }}>
+        <div>
+          <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>Compose</h1>
+          <p style={{ fontSize: "0.875rem", color: "var(--muted)" }}>Generate and send an outreach email.</p>
         </div>
+
+        {/* Step indicator */}
+        <div style={{ display: "flex", gap: 4, alignItems: "center" }}>
+          {(["setup", "review"] as Array<"setup" | "review">).map((s, i, arr) => (
+            <span key={s} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              <span style={{ fontSize: "0.78rem", fontWeight: step === s ? 700 : 400, color: step === s ? "var(--accent)" : "var(--faint)", padding: "4px 10px", background: step === s ? "var(--accent-dim)" : "transparent", borderRadius: 20 }}>
+                {i + 1}. {s.charAt(0).toUpperCase() + s.slice(1)}
+              </span>
+              {i < arr.length - 1 && <span style={{ color: "var(--faint)", fontSize: "0.72rem" }}>→</span>}
+            </span>
+          ))}
+        </div>
+
+        {/* Setup step */}
+        {step === "setup" && (
+          <div className="card" style={{ padding: 28, display: "grid", gap: 18 }}>
+            <div>
+              <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>Contact</label>
+              <select value={contactId} onChange={e => setContactId(e.target.value)} style={{ width: "100%" }} disabled={loadingContacts}>
+                <option value="">{loadingContacts ? "Loading…" : "Select a contact"}</option>
+                {contacts
+                  .filter(c => c.status !== "archived")
+                  .sort((a, b) => (a.ch?.companyName ?? "").localeCompare(b.ch?.companyName ?? ""))
+                  .map(c => (
+                    <option key={c.id} value={c.id}>
+                      {toTitleCase(c.ch?.companyName ?? "Unknown")}
+                      {c.directors?.[0] ? ` — ${c.directors[0].name.split(",")[0]}` : ""}
+                    </option>
+                  ))}
+              </select>
+            </div>
+
+            {selectedContact && (
+              <>
+                <div style={{ padding: "12px 16px", background: "var(--surface-2)", borderRadius: "var(--radius-sm)", border: "1px solid var(--border-2)", fontSize: "0.82rem", color: "var(--muted)", display: "grid", gap: 4 }}>
+                  {selectedContact.enrichment?.whyContactNow && (
+                    <p><strong style={{ color: "var(--accent)" }}>Why now:</strong> {selectedContact.enrichment.whyContactNow}</p>
+                  )}
+                  {primaryDirector && <p><strong>Director:</strong> {toTitleCase(primaryDirector.name.split(",").reverse().join(" ").trim())}</p>}
+                  {!selectedContact.enrichment && (
+                    <p style={{ color: "var(--status-amber)" }}>⚠ No enrichment data — consider enriching first for better emails.</p>
+                  )}
+                </div>
+
+                <div>
+                  <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>Recipient email</label>
+                  <input type="email" value={recipientEmail} onChange={e => setRecipientEmail(e.target.value)} placeholder="director@company.co.uk" style={{ width: "100%" }} />
+                  {primaryDirector?.email && (
+                    <button onClick={() => setRecipientEmail(primaryDirector.email!)} style={{ marginTop: 6, fontSize: "0.72rem", color: "var(--accent)", background: "none", border: "none", cursor: "pointer", padding: 0 }}>
+                      Use {primaryDirector.email}
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input type="checkbox" id="followup" checked={isFollowup} onChange={e => setIsFollowup(e.target.checked)} />
+                  <label htmlFor="followup" style={{ fontSize: "0.82rem", color: "var(--muted)", cursor: "pointer" }}>
+                    This is a follow-up email
+                  </label>
+                </div>
+              </>
+            )}
+
+            {genError && <p style={{ fontSize: "0.82rem", color: "var(--status-red)" }}>{genError}</p>}
+
+            <button onClick={handleGenerate} disabled={!selectedContact || !recipientEmail || generating} className="btn btn-primary">
+              {generating ? <><span className="spinner" /> Generating…</> : "Generate email →"}
+            </button>
+          </div>
+        )}
+
+        {/* Review step */}
+        {step === "review" && (
+          <div style={{ display: "grid", gap: 16 }}>
+            <div className="card" style={{ padding: 24, display: "grid", gap: 14 }}>
+              <div>
+                <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>Subject</label>
+                <input value={subject} onChange={e => setSubject(e.target.value)} style={{ width: "100%" }} />
+              </div>
+              <div>
+                <label style={{ fontSize: "0.8rem", fontWeight: 600, color: "var(--muted)", display: "block", marginBottom: 6 }}>Body</label>
+                <textarea value={body} onChange={e => setBody(e.target.value)} rows={12} style={{ width: "100%", resize: "vertical", fontFamily: "var(--font)", lineHeight: 1.7 }} />
+              </div>
+              <div style={{ padding: "10px 14px", background: "var(--surface-2)", borderRadius: "var(--radius-sm)", fontSize: "0.78rem", color: "var(--muted)" }}>
+                Sending to: <strong style={{ color: "var(--text)" }}>{recipientEmail}</strong>
+              </div>
+            </div>
+
+            {sendError && <p style={{ fontSize: "0.82rem", color: "var(--status-red)" }}>{sendError}</p>}
+
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={() => setStep("setup")} className="btn btn-ghost">← Back</button>
+              <button onClick={handleSaveDraft} className="btn btn-ghost">Save draft</button>
+              <button onClick={handleSend} disabled={sending} className="btn btn-primary" style={{ marginLeft: "auto" }}>
+                {sending ? <><span className="spinner" /> Sending…</> : "Send email ✓"}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </Shell>
   );
 }
 
-export default function ComposePage() {
+export default function Compose() {
   return (
-    <Suspense fallback={<Shell><div style={{ display: "flex", justifyContent: "center", padding: 80 }}><span className="spinner" style={{ width: 24, height: 24 }} /></div></Shell>}>
+    <Suspense>
       <ComposeInner />
     </Suspense>
   );
