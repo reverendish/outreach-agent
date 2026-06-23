@@ -9,17 +9,14 @@
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { checkInternalKey } from './auth.js';
+import { corsHeaders } from './cors.js';
 import { checkRateLimit } from './rate-limit.js';
 
 const MODEL  = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const REGION = process.env.BEDROCK_REGION   || 'eu-west-2';
 const bedrock = new BedrockRuntimeClient({ region: REGION });
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Internal-Key, X-User-Id',
-};
+let CORS;
 
 function json(status, body) {
   return { statusCode: status, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -103,6 +100,7 @@ Output only the email. No commentary.`;
 }
 
 export const handler = async (event) => {
+  CORS = corsHeaders(event);
   const method = event.requestContext?.http?.method || 'POST';
   if (method === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
 

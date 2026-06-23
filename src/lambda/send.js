@@ -18,6 +18,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { checkInternalKey } from './auth.js';
+import { corsHeaders } from './cors.js';
 import { checkRateLimit } from './rate-limit.js';
 
 const CONTACTS_TABLE = process.env.CONTACTS_TABLE;
@@ -25,11 +26,7 @@ const DRAFTS_TABLE   = process.env.DRAFTS_TABLE;
 const dbClient = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const sesClient = new SESv2Client({ region: process.env.SES_REGION || 'eu-west-1' });
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Internal-Key, X-User-Id',
-};
+let CORS;
 
 function json(status, body) {
   return { statusCode: status, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -86,6 +83,7 @@ async function dispatchEmail(recipientEmail, subject, emailBody) {
 }
 
 export const handler = async (event) => {
+  CORS = corsHeaders(event);
   const method = event.requestContext?.http?.method || 'POST';
   if (method === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
 

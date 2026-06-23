@@ -19,15 +19,12 @@ import {
   UpdateCommand, DeleteCommand, GetCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { checkInternalKey } from './auth.js';
+import { corsHeaders } from './cors.js';
 
 const TABLE  = process.env.CONTACTS_TABLE;
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-const CORS = {
-  'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
-  'Access-Control-Allow-Headers': 'Content-Type, X-Internal-Key, X-User-Id',
-};
+let CORS;
 
 function json(status, body) {
   return { statusCode: status, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
@@ -46,6 +43,7 @@ const PATCHABLE = new Set([
 ]);
 
 export const handler = async (event) => {
+  CORS = corsHeaders(event);
   const method = event.requestContext?.http?.method || 'GET';
   if (method === 'OPTIONS') return { statusCode: 200, headers: CORS, body: '' };
 
