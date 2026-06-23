@@ -1,3 +1,5 @@
+import { checkInternalKey } from './auth.js';
+
 export const handler = async (event) => {
   const requestOrigin = event.headers?.origin || event.headers?.Origin || '';
   const ALLOWED = new Set(['https://outreach.ishsitotombe.co.uk', 'https://ishsitotombe.co.uk', 'http://localhost:3000']);
@@ -12,8 +14,7 @@ export const handler = async (event) => {
     return { statusCode: 200, headers: corsHeaders, body: '' };
   }
 
-  const internalKey = process.env.INTERNAL_API_KEY;
-  if (internalKey && event.headers?.['x-internal-key'] !== internalKey) {
+  if (!checkInternalKey(event)) {
     return { statusCode: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Unauthorised' }) };
   }
 

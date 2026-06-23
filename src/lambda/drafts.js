@@ -14,6 +14,7 @@ import {
   DynamoDBDocumentClient, PutCommand, QueryCommand,
   UpdateCommand, DeleteCommand, GetCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { checkInternalKey } from './auth.js';
 
 const TABLE  = process.env.DRAFTS_TABLE;
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -29,8 +30,7 @@ function json(status, body) {
 }
 
 function checkAuth(event) {
-  const expected = process.env.INTERNAL_API_KEY;
-  return expected && event.headers?.['x-internal-key'] === expected;
+  return checkInternalKey(event);
 }
 
 const PATCHABLE = new Set(['subject', 'body', 'status', 'sentAt', 'provider', 'error']);

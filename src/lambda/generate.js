@@ -8,6 +8,7 @@
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { checkInternalKey } from './auth.js';
 
 const MODEL  = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const REGION = process.env.BEDROCK_REGION   || 'eu-west-2';
@@ -24,8 +25,7 @@ function json(status, body) {
 }
 
 function checkAuth(event) {
-  const expected = process.env.INTERNAL_API_KEY;
-  return expected && event.headers?.['x-internal-key'] === expected;
+  return checkInternalKey(event);
 }
 
 function buildPrompt(contact, enrichment, isFollowup, followupNumber, previousEmails) {

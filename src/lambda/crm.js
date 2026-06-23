@@ -18,6 +18,7 @@ import {
   DynamoDBDocumentClient, PutCommand, QueryCommand,
   UpdateCommand, DeleteCommand, GetCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { checkInternalKey } from './auth.js';
 
 const TABLE  = process.env.CONTACTS_TABLE;
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -32,11 +33,6 @@ function json(status, body) {
   return { statusCode: status, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
 }
 
-function checkInternalKey(event) {
-  const expected = process.env.INTERNAL_API_KEY;
-  if (!expected) return false;
-  return event.headers?.['x-internal-key'] === expected;
-}
 
 function getUserId(event) {
   return event.headers?.['x-user-id'] || null;

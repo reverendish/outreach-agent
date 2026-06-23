@@ -6,6 +6,7 @@
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { checkInternalKey } from './auth.js';
 
 // CH lookup and web enrichment run inline to avoid Lambda-to-Lambda latency.
 
@@ -112,8 +113,7 @@ export const handler = async (event) => {
     return { statusCode: 200, headers: CORS, body: '' };
   }
 
-  const internalKey = process.env.INTERNAL_API_KEY;
-  if (internalKey && event.headers?.['x-internal-key'] !== internalKey) {
+  if (!checkInternalKey(event)) {
     return { statusCode: 401, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Unauthorised' }) };
   }
 

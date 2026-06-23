@@ -17,6 +17,7 @@
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
+import { checkInternalKey } from './auth.js';
 
 const CONTACTS_TABLE = process.env.CONTACTS_TABLE;
 const DRAFTS_TABLE   = process.env.DRAFTS_TABLE;
@@ -34,8 +35,7 @@ function json(status, body) {
 }
 
 function checkAuth(event) {
-  const expected = process.env.INTERNAL_API_KEY;
-  return expected && event.headers?.['x-internal-key'] === expected;
+  return checkInternalKey(event);
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;

@@ -4,9 +4,11 @@
  * without needing to verify Google JWTs themselves.
  */
 export function lambdaHeaders(userId: string) {
+  const key = process.env.INTERNAL_API_KEY;
+  if (!key) throw new Error('INTERNAL_API_KEY is not set');
   return {
     'Content-Type': 'application/json',
-    'X-Internal-Key': process.env.INTERNAL_API_KEY ?? '',
+    'X-Internal-Key': key,
     'X-User-Id': userId,
   };
 }

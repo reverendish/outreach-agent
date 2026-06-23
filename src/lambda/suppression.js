@@ -9,6 +9,7 @@
 
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, QueryCommand, PutCommand, DeleteCommand } from '@aws-sdk/lib-dynamodb';
+import { checkInternalKey } from './auth.js';
 
 const TABLE  = process.env.SUPPRESSION_TABLE;
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
@@ -24,8 +25,7 @@ function json(status, body) {
 }
 
 function checkAuth(event) {
-  const expected = process.env.INTERNAL_API_KEY;
-  return expected && event.headers?.['x-internal-key'] === expected;
+  return checkInternalKey(event);
 }
 
 export const handler = async (event) => {
