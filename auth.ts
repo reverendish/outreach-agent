@@ -41,6 +41,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     }),
   ],
   callbacks: {
+    signIn({ user }) {
+      const allowed = (process.env.ALLOWED_USER_EMAILS || 'ishsitotombe@gmail.com')
+        .split(',')
+        .map(e => e.trim().toLowerCase())
+        .filter(Boolean);
+      return allowed.includes((user.email || '').toLowerCase());
+    },
     session({ session, token }) {
       if (token.sub) session.user.id = token.sub;
       return session;
