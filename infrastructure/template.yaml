@@ -30,6 +30,7 @@ Globals:
         ACCOUNTS_TABLE: !Ref AccountsTable
         DRAFTS_TABLE: !Ref DraftsTable
         SUPPRESSION_TABLE: !Ref SuppressionTable
+        RATE_LIMIT_TABLE: !Ref RateLimitTable
   HttpApi:
     DefaultRouteSettings:
       ThrottlingBurstLimit: 20
@@ -146,6 +147,22 @@ Resources:
         - AttributeName: email
           KeyType: RANGE
 
+  # ── DynamoDB: rate limiting ─────────────────────────────────────────────────
+  RateLimitTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub '${AWS::StackName}-ratelimit'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+
   # ── CRM: contact CRUD ──────────────────────────────────────────────────────
   CRMFunction:
     Type: AWS::Serverless::Function
@@ -232,6 +249,8 @@ Resources:
       Timeout: 60
       Policies:
         - AmazonBedrockFullAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RateLimitTable
       FunctionUrlConfig:
         AuthType: NONE
   # ── Send: provider-agnostic email send ────────────────────────────────────
@@ -247,6 +266,8 @@ Resources:
             TableName: !Ref DraftsTable
         - DynamoDBCrudPolicy:
             TableName: !Ref SuppressionTable
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RateLimitTable
         - Statement:
             - Effect: Allow
               Action:
@@ -301,6 +322,9 @@ Outputs:
   SuppressionTableName:
     Description: 'DynamoDB suppression table'
     Value: !Ref SuppressionTable
+  RateLimitTableName:
+    Description: 'DynamoDB rate limit table'
+    Value: !Ref RateLimitTable
   DemoApiUrl:
     Description: 'API Gateway URL (demo-send only)'
     Value: !Sub 'https://${ServerlessHttpApi}.execute-api.${AWS::Region}.amazonaws.com'

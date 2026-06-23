@@ -18,6 +18,7 @@ import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, UpdateCommand, GetCommand } from '@aws-sdk/lib-dynamodb';
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2';
 import { checkInternalKey } from './auth.js';
+import { checkRateLimit } from './rate-limit.js';
 
 const CONTACTS_TABLE = process.env.CONTACTS_TABLE;
 const DRAFTS_TABLE   = process.env.DRAFTS_TABLE;
@@ -91,6 +92,9 @@ export const handler = async (event) => {
   if (!checkAuth(event)) return json(401, { error: 'Unauthorised' });
   const userId = event.headers?.['x-user-id'];
   if (!userId) return json(401, { error: 'Missing X-User-Id' });
+
+  const limited = await checkRateLimit(userId, 'send', 30);
+  if (limited) return { ...limited, headers: CORS };
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch {

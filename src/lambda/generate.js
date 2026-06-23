@@ -9,6 +9,7 @@
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { checkInternalKey } from './auth.js';
+import { checkRateLimit } from './rate-limit.js';
 
 const MODEL  = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
 const REGION = process.env.BEDROCK_REGION   || 'eu-west-2';
@@ -108,6 +109,9 @@ export const handler = async (event) => {
   if (!checkAuth(event)) return json(401, { error: 'Unauthorised' });
   const userId = event.headers?.['x-user-id'];
   if (!userId) return json(401, { error: 'Missing X-User-Id' });
+
+  const limited = await checkRateLimit(userId, 'generate', 50);
+  if (limited) return { ...limited, headers: CORS };
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch {
