@@ -13,6 +13,7 @@
  */
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
+import { checkRateLimit } from './rate-limit.js';
 
 // Allow calls from both the portfolio and the outreach app itself
 const ALLOWED_ORIGINS = new Set([
@@ -71,6 +72,12 @@ export const handler = async (event) => {
       body: JSON.stringify({ error: 'Invalid email address' }),
     };
   }
+
+  const sourceIp = event.requestContext?.http?.sourceIp || 'unknown';
+  const ipLimit = await checkRateLimit(sourceIp, 'demo-ip', 3);
+  if (ipLimit) return { ...ipLimit, headers: { ...CORS, 'Content-Type': 'application/json' } };
+  const rcptLimit = await checkRateLimit(recipientEmail, 'demo-rcpt', 2);
+  if (rcptLimit) return { ...rcptLimit, headers: { ...CORS, 'Content-Type': 'application/json' } };
 
   const resendKey = process.env.RESEND_API_KEY;
   if (!resendKey) {

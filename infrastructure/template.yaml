@@ -293,6 +293,8 @@ Resources:
       Timeout: 60
       Policies:
         - AmazonBedrockFullAccess
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RateLimitTable
       Environment:
         Variables:
           RESEND_API_KEY: !Ref ResendApiKey
