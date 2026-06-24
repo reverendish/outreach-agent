@@ -143,6 +143,6 @@ export const handler = async (event) => {
   } catch (e) {
     console.error('Drafts error:', e);
     if (e.name === 'ConditionalCheckFailedException') return json(404, { error: 'Not found' });
-    return json(500, { error: 'Internal server error', details: e.message });
+    return json(500, { error: 'Internal server error' });
   }
 };

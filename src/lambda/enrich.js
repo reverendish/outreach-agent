@@ -7,28 +7,8 @@
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { checkInternalKey } from './auth.js';
-
-// CH lookup and web enrichment run inline to avoid Lambda-to-Lambda latency.
-
-// Multi-origin allowlist — reflects the request origin so browsers accept the response.
-// Falling back to the outreach app origin keeps legacy single-origin clients working.
-const ALLOWED_ORIGINS = new Set([
-  'https://outreach.ishsitotombe.co.uk',
-  'https://ishsitotombe.co.uk',
-  'https://www.ishsitotombe.co.uk',
-]);
-
-function corsHeaders(requestOrigin) {
-  const origin = ALLOWED_ORIGINS.has(requestOrigin)
-    ? requestOrigin
-    : 'https://outreach.ishsitotombe.co.uk';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Vary': 'Origin',
-  };
-}
+import { corsHeaders } from './cors.js';
+import { checkRateLimit } from './rate-limit.js';
 
 const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0';
 
@@ -102,8 +82,7 @@ function detectTechStack(html) {
 // ── Main handler ────────────────────────────────────────────────────────────
 
 export const handler = async (event) => {
-  const origin = event.headers?.origin || event.headers?.Origin || '';
-  const CORS = corsHeaders(origin);
+  const CORS = corsHeaders(event);
 
   // Top-level guard: any unhandled exception returns CORS headers so browsers
   // get a readable error instead of an opaque CORS block.
@@ -116,6 +95,10 @@ export const handler = async (event) => {
   if (!checkInternalKey(event)) {
     return { statusCode: 401, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Unauthorised' }) };
   }
+
+  const userId = event.headers?.['x-user-id'] || 'anonymous';
+  const limited = await checkRateLimit(userId, 'enrich', 30);
+  if (limited) return { ...limited, headers: { ...CORS, 'Content-Type': 'application/json' } };
 
   let body;
   try { body = JSON.parse(event.body || '{}'); } catch {
@@ -268,7 +251,7 @@ Return ONLY the JSON.`;
     const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim();
     enrichment = JSON.parse(cleaned);
   } catch (e) {
-    return { statusCode: 500, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Synthesis failed', details: e.message }) };
+    return { statusCode: 500, headers: { ...CORS, 'Content-Type': 'application/json' }, body: JSON.stringify({ error: 'Synthesis failed' }) };
   }
 
   // ── Change summary ────────────────────────────────────────────────────
@@ -306,7 +289,7 @@ Return ONLY the JSON.`;
     return {
       statusCode: 500,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Internal server error', details: e.message }),
+      body: JSON.stringify({ error: 'Internal server error' }),
     };
   }
 };

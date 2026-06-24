@@ -228,11 +228,8 @@ Resources:
       Timeout: 90
       Policies:
         - AmazonBedrockFullAccess
-        - Statement:
-            - Effect: Allow
-              Action:
-                - lambda:InvokeFunction
-              Resource: '*'
+        - DynamoDBCrudPolicy:
+            TableName: !Ref RateLimitTable
       Environment:
         Variables:
           COMPANIES_HOUSE_API_KEY: !Ref CompaniesHouseApiKey

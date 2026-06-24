@@ -97,6 +97,6 @@ export const handler = async (event) => {
   } catch (e) {
     console.error('Account error:', e);
     if (e.name === 'ConditionalCheckFailedException') return json(404, { error: 'Account not found' });
-    return json(500, { error: 'Internal server error', details: e.message });
+    return json(500, { error: 'Internal server error' });
   }
 };

@@ -149,6 +149,6 @@ export const handler = async (event) => {
 
   } catch (e) {
     console.error('Generation error:', e);
-    return json(500, { error: 'Generation failed', details: e.message });
+    return json(500, { error: 'Generation failed' });
   }
 };

@@ -2,7 +2,6 @@
 import { useState } from 'react';
 import { signIn } from 'next-auth/react';
 import { useRouter } from 'next/navigation';
-import Link from 'next/link';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -85,10 +84,7 @@ export default function LoginPage() {
         </form>
 
         <p style={{ marginTop: 24, textAlign: 'center', fontSize: '0.82rem', color: 'var(--muted)' }}>
-          No account?{' '}
-          <Link href="/signup" style={{ color: 'var(--accent)', fontWeight: 600 }}>
-            Sign up
-          </Link>
+          Access is invite-only.
         </p>
       </div>
     </div>

@@ -80,6 +80,6 @@ export const handler = async (event) => {
 
   } catch (e) {
     console.error('Suppression error:', e);
-    return json(500, { error: 'Internal server error', details: e.message });
+    return json(500, { error: 'Internal server error' });
   }
 };

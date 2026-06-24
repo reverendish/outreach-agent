@@ -132,7 +132,7 @@ export const handler = async (event) => {
         ExpressionAttributeValues: { ':s': 'error', ':err': e.message, ':now': now },
       })).catch(() => {});
     }
-    return json(502, { error: 'Send failed', details: e.message });
+    return json(502, { error: 'Send failed' });
   }
 
   // ── Update draft → sent ───────────────────────────────────────────────────

@@ -14,32 +14,12 @@
 
 import { BedrockRuntimeClient, InvokeModelCommand } from '@aws-sdk/client-bedrock-runtime';
 import { checkRateLimit } from './rate-limit.js';
+import { corsHeaders } from './cors.js';
 
-// Allow calls from both the portfolio and the outreach app itself
-const ALLOWED_ORIGINS = new Set([
-  'https://ishsitotombe.co.uk',
-  'https://www.ishsitotombe.co.uk',
-  'https://outreach.ishsitotombe.co.uk',
-]);
-
-function corsHeaders(requestOrigin) {
-  const origin = ALLOWED_ORIGINS.has(requestOrigin)
-    ? requestOrigin
-    : 'https://ishsitotombe.co.uk';
-  return {
-    'Access-Control-Allow-Origin': origin,
-    'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Vary': 'Origin',
-  };
-}
-
-// Basic email format check — full validation is Resend's job
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export const handler = async (event) => {
-  const origin = event.headers?.origin || event.headers?.Origin || '';
-  const CORS = corsHeaders(origin);
+  const CORS = corsHeaders(event);
 
   if (event.requestContext?.http?.method === 'OPTIONS') {
     return { statusCode: 200, headers: CORS, body: '' };
@@ -129,7 +109,7 @@ Output only the email. No commentary.`;
     return {
       statusCode: 500,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Generation failed', details: e.message }),
+      body: JSON.stringify({ error: 'Generation failed' }),
     };
   }
 
@@ -161,18 +141,18 @@ Output only the email. No commentary.`;
     });
 
     if (!res.ok) {
-      const errText = await res.text();
+      console.error('Resend error:', await res.text());
       return {
         statusCode: 502,
         headers: { ...CORS, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ error: 'Send failed', details: errText }),
+        body: JSON.stringify({ error: 'Send failed' }),
       };
     }
   } catch (e) {
     return {
       statusCode: 502,
       headers: { ...CORS, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ error: 'Send failed', details: e.message }),
+      body: JSON.stringify({ error: 'Send failed' }),
     };
   }
 
