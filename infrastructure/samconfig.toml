@@ -1,9 +1,0 @@
-version = 0.1
-
-[default.deploy.parameters]
-stack_name = "ish-outreach-agent"
-region = "eu-west-2"
-confirm_changeset = false
-capabilities = "CAPABILITY_IAM CAPABILITY_NAMED_IAM CAPABILITY_AUTO_EXPAND"
-resolve_s3 = true
-parameter_overrides = "InternalApiKey=\"0orsu+s8DHdI8DhhJxhsXYibnveBf+3aLIKDUs745U4=\" SesFromEmail=\"outreach@ishsitotombe.co.uk\" ResendApiKey=\"re_VNW5GhZ9_Q2J9UJx527YJzoroZmrRxUxB\" CompaniesHouseApiKey=\"44601a2b-9d10-4e85-9741-6801bdaa96b1\" BraveApiKey=\"BSA2WZbd5q6OsrOi03VsrI2NPwibiXL\""

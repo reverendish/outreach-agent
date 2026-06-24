@@ -10,8 +10,9 @@ out/
 .env.*.local
 .env.production
 
-# SAM build artifacts
+# SAM build artifacts and config (contains API keys)
 infrastructure/.aws-sam/
+infrastructure/samconfig.toml
 .aws-sam/
 
 # misc
@@ -24,3 +25,6 @@ repomix-output.xml
 *credentials*.json
 *credentials*.env
 *.csv
+
+# Local Netlify folder
+.netlify
