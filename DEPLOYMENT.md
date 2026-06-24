@@ -1,77 +1,60 @@
 # Outreach Agent — Deployment Guide
 
-## One-time setup: new SSM parameter
+## Architecture
 
-Before deploying, create the API key parameter (the others already exist):
-
-```bash
-# Generate a strong API key
-aws ssm put-parameter \
-  --name /outreach/api_key \
-  --value "$(openssl rand -hex 32)" \
-  --type SecureString \
-  --region eu-west-2
-
-# Print it so you can copy it for Netlify
-aws ssm get-parameter \
-  --name /outreach/api_key \
-  --with-decryption \
-  --query Parameter.Value \
-  --output text \
-  --region eu-west-2
-```
-
-Existing parameters (should already be present):
-- `/outreach/companies_house_api_key`
-- `/outreach/resend_api_key`
-- `/outreach/brave_api_key`
+Next.js BFF on Netlify → AWS Lambda Function URLs (SAM). The BFF authenticates users (Auth.js v5, Google + Credentials) and proxies to Lambdas via server-only `INTERNAL_API_KEY` + `X-User-Id` headers. No secrets are exposed to the browser.
 
 ## Deploy Lambda stack
 
 ```bash
-cd ~/Desktop/ish-work/outreach-agent
-
-git add -A
-git commit -m "feat: DynamoDB CRM, /api/crm + /send Lambda routes, multi-page frontend"
-
-cd infrastructure
+cd ~/Desktop/ish-work/outreach-agent/infrastructure
 sam build
-sam deploy
+sam deploy --parameter-overrides \
+  InternalApiKey="<key>" \
+  SesFromEmail="outreach@ishsitotombe.co.uk" \
+  ResendApiKey="<resend-key>" \
+  CompaniesHouseApiKey="<ch-key>" \
+  BraveApiKey="<brave-key>"
 ```
 
-`sam deploy` will output the API Gateway base URL — copy it for the next step.
+After deploy, get the Function URLs from the CloudFormation outputs or Lambda console.
 
 ## Netlify environment variables
 
-Netlify → Site settings → Environment variables:
+Netlify → outreach-agent site → Site configuration → Environment variables:
 
 | Variable | Value |
 |---|---|
-| `NEXT_PUBLIC_LAMBDA_BASE` | API Gateway URL from `sam deploy` (e.g. `https://abc123.execute-api.eu-west-2.amazonaws.com`) |
-| `NEXT_PUBLIC_OUTREACH_API_KEY` | The key from SSM `/outreach/api_key` |
+| `AUTH_SECRET` | `openssl rand -base64 32` |
+| `AUTH_URL` | `https://outreach.ishsitotombe.co.uk` |
+| `GOOGLE_CLIENT_ID` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | Google OAuth client secret |
+| `ALLOWED_USER_EMAILS` | Comma-separated allowed login emails |
+| `INTERNAL_API_KEY` | Must match the SAM `InternalApiKey` parameter |
+| `CRM_LAMBDA_URL` | Function URL for CRMFunction |
+| `ACCOUNT_LAMBDA_URL` | Function URL for AccountFunction |
+| `DRAFTS_LAMBDA_URL` | Function URL for DraftsFunction |
+| `GENERATE_LAMBDA_URL` | Function URL for GenerateFunction |
+| `ENRICH_LAMBDA_URL` | Function URL for EnrichFunction |
+| `SEND_LAMBDA_URL` | Function URL for SendFunction |
+| `SEARCH_LAMBDA_URL` | Function URL for SearchFunction |
+| `SUPPRESSION_LAMBDA_URL` | Function URL for SuppressionFunction |
 
-Trigger a Netlify redeploy after adding them.
+No `NEXT_PUBLIC_*` secrets are used. All Lambda communication is server-side only.
 
 ## Local development
 
 ```bash
 cp .env.local.example .env.local
-# Fill in NEXT_PUBLIC_LAMBDA_BASE and NEXT_PUBLIC_OUTREACH_API_KEY
+# Fill in all values (see .env.local.example for the full list)
 npm run dev
 ```
 
-## What was added
+## Key rotation
 
-### Backend
-- **`ProspectsTable`** DynamoDB table — PK: `userId`, SK: `companyNumber`, GSIs: `ByStatus`, `ByContactedAt`
-- **`CRMFunction`** — `/api/crm` CRUD (list / upsert / patch / delete), auth required
-- **`SendFunction`** — `/send` sends via Resend then updates CRM, auth required
-- `src/lambda/crm.js`, `src/lambda/send.js`
-
-### Frontend
-- `/search` — CH company search, save to CRM
-- `/prospects` — CRM table with status filter
-- `/prospect/[number]` — company detail, notes, status, reply tracking
-- `/compose` — select → generate → edit → send
-- `app/lib/api.ts` — typed API client
-- Root `/` redirects to `/search`
+```bash
+openssl rand -hex 32
+# Update in both places:
+# 1. SAM: sam deploy --parameter-overrides InternalApiKey="<new-key>" ...
+# 2. Netlify: Environment variables → INTERNAL_API_KEY → paste new key → redeploy
+```

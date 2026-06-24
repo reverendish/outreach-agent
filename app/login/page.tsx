@@ -60,6 +60,7 @@ export default function LoginPage() {
             placeholder="you@company.com"
             required
             autoComplete="email"
+            aria-label="Email"
             style={{ width: '100%' }}
           />
           <input
@@ -69,6 +70,7 @@ export default function LoginPage() {
             placeholder="Password"
             required
             autoComplete="current-password"
+            aria-label="Password"
             style={{ width: '100%' }}
           />
           {error && (
