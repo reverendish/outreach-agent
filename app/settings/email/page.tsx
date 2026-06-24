@@ -10,6 +10,7 @@ export default function EmailSettings() {
   const [fromName, setFromName] = useState("");
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   useEffect(() => {
     api.account.get().then(a => {
@@ -22,12 +23,15 @@ export default function EmailSettings() {
   const save = async () => {
     if (!account) return;
     setSaving(true);
+    setError("");
     try {
       await api.account.update({
         sending: { provider: account.sending?.provider ?? "ses", fromAddress: fromEmail, fromName },
       } as Partial<Account>);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setError(e?.message || "Failed to save settings");
     } finally {
       setSaving(false);
     }
@@ -66,6 +70,7 @@ export default function EmailSettings() {
               <li>Set up bounce/complaint notifications via SNS</li>
             </ul>
           </div>
+          {error && <p style={{ color: "var(--status-red)", fontSize: "0.82rem" }}>{error}</p>}
           <button onClick={save} disabled={saving} className="btn btn-primary" style={{ width: "fit-content" }}>
             {saved ? "Saved ✓" : saving ? "Saving…" : "Save settings"}
           </button>

@@ -8,6 +8,7 @@ export default function AccountSettings() {
   const [account, setAccount] = useState<Account | null>(null);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
 
   // Local form state
   const [displayName, setDisplayName] = useState("");
@@ -19,8 +20,8 @@ export default function AccountSettings() {
   useEffect(() => {
     api.account.get().then(a => {
       setAccount(a);
-      setDisplayName(a.name ?? "");
-      setReplyToEmail(a.email ?? "");
+      setDisplayName(a.displayName ?? a.name ?? "");
+      setReplyToEmail(a.replyToEmail ?? a.email ?? "");
       setAutoEnrich(a.automation?.autoEnrich ?? false);
       setAutoGenerate(a.automation?.autoGenerate ?? false);
       setAutoSend(a.automation?.autoSend ?? false);
@@ -29,10 +30,11 @@ export default function AccountSettings() {
 
   const save = async () => {
     setSaving(true);
+    setError("");
     try {
       await api.account.update({
-        name: displayName,
-        email: replyToEmail,
+        displayName,
+        replyToEmail,
         automation: {
           ...account?.automation,
           autoEnrich,
@@ -43,6 +45,8 @@ export default function AccountSettings() {
       } as Partial<Account>);
       setSaved(true);
       setTimeout(() => setSaved(false), 2000);
+    } catch (e: any) {
+      setError(e?.message || "Failed to save settings");
     } finally {
       setSaving(false);
     }
@@ -137,6 +141,7 @@ export default function AccountSettings() {
               </div>
             </div>
 
+            {error && <p style={{ color: "var(--status-red)", fontSize: "0.82rem" }}>{error}</p>}
             <button onClick={save} disabled={saving} className="btn btn-primary" style={{ width: "fit-content" }}>
               {saved ? "Saved ✓" : saving ? "Saving…" : "Save settings"}
             </button>

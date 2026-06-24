@@ -40,6 +40,8 @@ export interface Account {
   userId: string;            // Google sub or email — DynamoDB partition key
   email: string;
   name: string | null;
+  displayName?: string;
+  replyToEmail?: string;
   avatarUrl: string | null;
 
   // Sender profile

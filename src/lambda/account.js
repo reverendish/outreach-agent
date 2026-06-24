@@ -25,7 +25,7 @@ function checkAuth(event) {
 }
 
 const PATCHABLE = new Set([
-  'sendingConfig', 'automation', 'displayName', 'replyToEmail',
+  'sending', 'automation', 'displayName', 'replyToEmail',
 ]);
 
 export const handler = async (event) => {
@@ -51,10 +51,10 @@ export const handler = async (event) => {
         id: userId,
         displayName: name,
         replyToEmail: email,
-        sendingConfig: { provider: 'ses', fromEmail: '', fromName: name },
+        sending: { provider: 'ses', fromAddress: '', fromName: name },
         automation: {
           autoEnrich: false,
-          autoDraft: false,
+          autoGenerate: false,
           autoSend: false,
           trustRampCount: 0,
           manualReviewRequired: true,
