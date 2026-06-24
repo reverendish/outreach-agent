@@ -54,9 +54,9 @@ export const handler = async (event) => {
   }
 
   const sourceIp = event.requestContext?.http?.sourceIp || 'unknown';
-  const ipLimit = await checkRateLimit(sourceIp, 'demo-ip', 3);
+  const ipLimit = await checkRateLimit(sourceIp, 'demo-ip', 3, { failClosed: true });
   if (ipLimit) return { ...ipLimit, headers: { ...CORS, 'Content-Type': 'application/json' } };
-  const rcptLimit = await checkRateLimit(recipientEmail, 'demo-rcpt', 2);
+  const rcptLimit = await checkRateLimit(recipientEmail, 'demo-rcpt', 2, { failClosed: true });
   if (rcptLimit) return { ...rcptLimit, headers: { ...CORS, 'Content-Type': 'application/json' } };
 
   const resendKey = process.env.RESEND_API_KEY;

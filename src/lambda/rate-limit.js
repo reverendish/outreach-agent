@@ -4,8 +4,8 @@ import { DynamoDBDocumentClient, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 const TABLE = process.env.RATE_LIMIT_TABLE;
 const client = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
-export async function checkRateLimit(userId, route, dailyCap) {
-  if (!TABLE) return null;
+export async function checkRateLimit(userId, route, dailyCap, { failClosed = false } = {}) {
+  if (!TABLE) return failClosed ? { statusCode: 503, body: JSON.stringify({ error: 'Service unavailable' }) } : null;
   const day = new Date().toISOString().slice(0, 10);
   const pk = `${userId}#${route}#${day}`;
 
@@ -29,6 +29,6 @@ export async function checkRateLimit(userId, route, dailyCap) {
     return null;
   } catch (e) {
     console.error('Rate limit check failed:', e.message);
-    return null;
+    return failClosed ? { statusCode: 503, body: JSON.stringify({ error: 'Service unavailable' }) } : null;
   }
 }
