@@ -8,7 +8,7 @@ export default function CredentialsSettings() {
         <div style={{ marginBottom: 28 }}>
           <h1 style={{ fontSize: "1.5rem", fontWeight: 700, color: "var(--text)", marginBottom: 4 }}>Integrations</h1>
           <p style={{ fontSize: "0.875rem", color: "var(--muted)", lineHeight: 1.6 }}>
-            AI generation and company enrichment run server-side — no API keys required from you.
+            AI generation and company enrichment run server-side, no API keys required from you.
           </p>
         </div>
 
@@ -36,7 +36,7 @@ export default function CredentialsSettings() {
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <p style={{ fontSize: "0.875rem", fontWeight: 600, color: "var(--text)", marginBottom: 2 }}>Brave Search</p>
-              <p style={{ fontSize: "0.78rem", color: "var(--muted)" }}>Web enrichment — website, news, social signals</p>
+              <p style={{ fontSize: "0.78rem", color: "var(--muted)" }}>Web enrichment: website, news, social signals</p>
             </div>
             <span style={{ fontSize: "0.72rem", fontWeight: 600, padding: "3px 10px", borderRadius: 20, background: "var(--status-green-dim)", color: "var(--status-green)" }}>
               ● Connected

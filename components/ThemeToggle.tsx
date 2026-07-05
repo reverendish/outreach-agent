@@ -25,7 +25,7 @@ export default function ThemeToggle() {
       style={{
         background: 'transparent',
         border: '1px solid var(--border-2)',
-        borderRadius: '8px',
+        borderRadius: 'var(--radius)',
         padding: '6px 10px',
         cursor: 'pointer',
         color: 'var(--muted)',

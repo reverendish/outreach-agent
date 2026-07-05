@@ -161,7 +161,7 @@ function ComposeInner() {
                   .map(c => (
                     <option key={c.id} value={c.id}>
                       {toTitleCase(c.ch?.companyName ?? "Unknown")}
-                      {c.directors?.[0] ? ` — ${c.directors[0].name.split(",")[0]}` : ""}
+                      {c.directors?.[0] ? ` · ${c.directors[0].name.split(",")[0]}` : ""}
                     </option>
                   ))}
               </select>
@@ -175,7 +175,7 @@ function ComposeInner() {
                   )}
                   {primaryDirector && <p><strong>Director:</strong> {toTitleCase(primaryDirector.name.split(",").reverse().join(" ").trim())}</p>}
                   {!selectedContact.enrichment && (
-                    <p style={{ color: "var(--status-amber)" }}>⚠ No enrichment data — consider enriching first for better emails.</p>
+                    <p style={{ color: "var(--status-amber)" }}>⚠ No enrichment data, consider enriching first for better emails.</p>
                   )}
                 </div>
 

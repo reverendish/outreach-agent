@@ -306,7 +306,7 @@ export default function Contacts() {
             <div style={{ padding: 32, textAlign: "center" }}><span className="spinner" /></div>
           ) : filtered.length === 0 ? (
             <p style={{ padding: 32, textAlign: "center", fontSize: "0.875rem", color: "var(--faint)" }}>
-              {contacts.length === 0 ? "No contacts yet — search Companies House above to add some." : "No contacts match these filters."}
+              {contacts.length === 0 ? "No contacts yet, search Companies House above to add some." : "No contacts match these filters."}
             </p>
           ) : (
             <table style={{ width: "100%", borderCollapse: "collapse" }}>

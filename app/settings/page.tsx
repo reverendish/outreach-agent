@@ -6,7 +6,7 @@ const SETTINGS_SECTIONS = [
   { href: "/settings/account", label: "Account & automation", description: "Sending identity, automation toggles, trust ramp." },
   { href: "/settings/email", label: "Email sending", description: "SES verified address, fallback to Resend." },
   { href: "/settings/suppression", label: "Suppression list", description: "Opted-out addresses. Manual removal only." },
-  { href: "/settings/credentials", label: "Integrations", description: "Bedrock, Companies House, Brave Search — all server-side." },
+  { href: "/settings/credentials", label: "Integrations", description: "Bedrock, Companies House, Brave Search, all server-side." },
 ];
 
 export default function Settings() {
